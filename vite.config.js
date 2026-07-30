@@ -6,7 +6,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        banner: '/*! Rainform © 2026 afterimage · PolyForm Noncommercial 1.0.0 · https://rainform.pages.dev/ */'
+        banner: '/*! Hyeto © 2026 JavaLyHn · PolyForm Noncommercial 1.0.0 · derived from Rainform / 数据成雨 © 2026 afterimage — https://rainform.pages.dev/ */'
       }
     }
   }

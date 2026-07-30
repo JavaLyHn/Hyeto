@@ -1,17 +1,16 @@
 {
-  "name": "rainform",
+  "name": "hyeto",
   "version": "2.0.0",
   "private": true,
   "description": "An interactive Three.js/WebGL rainfall landscape driven by hourly precipitation data.",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "author": "afterimage",
-  "homepage": "https://rainform.pages.dev/",
+  "author": "JavaLyHn",
   "repository": {
     "type": "git",
-    "url": "https://github.com/afterimage-lab/Rainform.git"
+    "url": "https://github.com/JavaLyHn/Hyeto.git"
   },
   "bugs": {
-    "url": "https://github.com/afterimage-lab/Rainform/issues"
+    "url": "https://github.com/JavaLyHn/Hyeto/issues"
   },
   "type": "module",
   "engines": {

@@ -1,3 +1,5 @@
+// Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
+// Rain visualization derived from Rainform / 数据成雨 by afterimage
 // Required Notice: Rainform / 数据成雨 © 2026 afterimage — https://rainform.pages.dev/
 //
 // Generates the bundled rain loop entirely from deterministic synthesis.

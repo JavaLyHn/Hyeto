@@ -20,12 +20,12 @@ for (const file of requiredFiles) {
 }
 
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
-if (packageJson.name !== 'rainform') throw new Error('package.json name must remain "rainform".');
+if (packageJson.name !== 'hyeto') throw new Error('package.json name must remain "hyeto".');
 if (packageJson.license !== 'PolyForm-Noncommercial-1.0.0') {
   throw new Error('package.json must declare PolyForm-Noncommercial-1.0.0.');
 }
 if (packageJson.private !== true) {
-  throw new Error('Rainform must be marked private to prevent accidental npm publication.');
+  throw new Error('Hyeto must be marked private to prevent accidental npm publication.');
 }
 
 const mainSource = await readFile('src/main.js', 'utf8');
