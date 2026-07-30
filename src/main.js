@@ -1,3 +1,5 @@
+// Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
+// Rain visualization derived from Rainform / 数据成雨 by afterimage
 // Required Notice: Rainform / 数据成雨 © 2026 afterimage — https://rainform.pages.dev/
 
 import * as THREE from 'three';
@@ -25,11 +27,11 @@ const preferredLanguage = requestedLanguage
 const locale = /^zh(?:-|$)/i.test(preferredLanguage) ? 'zh-CN' : 'en';
 const messages = {
   'zh-CN': {
-    documentTitle: 'Rainform · 数据成雨',
-    description: 'Rainform「数据成雨」将 24 小时逐时降雨数据转化为可交互的实时粒子雨景。拖动降雨曲线，观察雨幕随数据重塑。',
-    socialDescription: 'Rainform「数据成雨」：拖动 24 小时降雨曲线，实时重塑由 Three.js 与 WebGL 驱动的粒子雨幕。',
-    socialImageAlt: 'Rainform 数据成雨生成的液态金属粒子雨幕',
-    dashboardAria: 'Rainform 数据成雨交互式粒子雨幕',
+    documentTitle: 'Hyeto',
+    description: 'Hyeto将 24 小时逐时降雨数据转化为可交互的实时粒子雨景。拖动降雨曲线，观察雨幕随数据重塑。',
+    socialDescription: 'Hyeto：拖动 24 小时降雨曲线，实时重塑由 Three.js 与 WebGL 驱动的粒子雨幕。',
+    socialImageAlt: 'Hyeto生成的液态金属粒子雨幕',
+    dashboardAria: 'Hyeto交互式粒子雨幕',
     sceneAria: '可交互的珍珠雨幕数据图',
     canvasAria: '可交互的珍珠雨幕降雨强度图',
     toolbarAria: '图表工具',
@@ -55,7 +57,7 @@ const messages = {
     axisSubtitle: '每小时降水',
     axisUnit: '毫米/小时',
     rotateTitle: '请旋转至横屏',
-    rotateDescription: '旋转手机以完整体验 Rainform 数据成雨',
+    rotateDescription: '旋转手机以完整体验 Hyeto',
     rotateSoundSuggestion: '建议开启声音',
     rotateDesktopSuggestion: '电脑端体验更佳',
     rotateBrowserSuggestion: '如果当前页面无法旋转，请轻点“⋮”并选择“在浏览器中打开”',
@@ -79,11 +81,11 @@ const messages = {
     webglInterrupted: '图形环境暂时中断，正在等待浏览器恢复。'
   },
   en: {
-    documentTitle: 'Rainform · Data into Rain',
-    description: 'Rainform turns 24 hours of hourly rainfall data into an interactive real-time particle landscape. Drag the rainfall curve to reshape the rain curtain.',
-    socialDescription: 'Rainform turns a 24-hour rainfall curve into a real-time particle landscape powered by Three.js and WebGL.',
-    socialImageAlt: 'Rainform liquid-metal particle rain generated from 24 hours of rainfall data',
-    dashboardAria: 'Rainform interactive rainfall particle landscape',
+    documentTitle: 'Hyeto · Data into Rain',
+    description: 'Hyeto turns 24 hours of hourly rainfall data into an interactive real-time particle landscape. Drag the rainfall curve to reshape the rain curtain.',
+    socialDescription: 'Hyeto turns a 24-hour rainfall curve into a real-time particle landscape powered by Three.js and WebGL.',
+    socialImageAlt: 'Hyeto liquid-metal particle rain generated from 24 hours of rainfall data',
+    dashboardAria: 'Hyeto interactive rainfall particle landscape',
     sceneAria: 'Interactive particle-based rainfall chart',
     canvasAria: 'Interactive particle-based rainfall intensity chart',
     toolbarAria: 'Chart tools',
@@ -109,7 +111,7 @@ const messages = {
     axisSubtitle: 'Hourly rainfall',
     axisUnit: 'mm/h',
     rotateTitle: 'Rotate to landscape',
-    rotateDescription: 'Turn your phone sideways for the complete Rainform experience',
+    rotateDescription: 'Turn your phone sideways for the complete Hyeto experience',
     rotateSoundSuggestion: 'Sound on recommended',
     rotateDesktopSuggestion: 'Best experienced on desktop',
     rotateBrowserSuggestion: 'If this page cannot rotate, tap “⋮” and choose “Open in Browser”',
