@@ -1,0 +1,38 @@
+{
+  "name": "rainform",
+  "version": "2.0.0",
+  "private": true,
+  "description": "An interactive Three.js/WebGL rainfall landscape driven by hourly precipitation data.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "afterimage",
+  "homepage": "https://rainform.pages.dev/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/afterimage-lab/Rainform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/afterimage-lab/Rainform/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "audio:generate": "node scripts/generate-rain-audio.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check:project": "node scripts/check-project.mjs",
+    "check:dist": "node scripts/check-dist.mjs",
+    "check": "npm run check:project && npm run build && npm run check:dist"
+  },
+  "dependencies": {
+    "three": "^0.165.0"
+  },
+  "devDependencies": {
+    "vite": "^6.4.3"
+  },
+  "overrides": {
+    "postcss": "8.5.23"
+  }
+}
