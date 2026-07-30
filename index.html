@@ -1,0 +1,222 @@
+<!doctype html>
+<!--
+  Rainform / 数据成雨
+  Required Notice: Copyright © 2026 afterimage. https://rainform.pages.dev/
+  Source available for noncommercial use under PolyForm Noncommercial 1.0.0.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="author" content="afterimage" />
+    <meta name="copyright" content="© 2026 Rainform / afterimage. Noncommercial source license." />
+    <style>html,body{margin:0;background:#000;color:#fff;overflow:hidden}</style>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="canonical" href="https://rainform.pages.dev/" />
+    <meta
+      name="description"
+      content="Rainform turns 24 hours of hourly rainfall data into an interactive real-time particle landscape. Drag the rainfall curve to reshape the rain curtain."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://rainform.pages.dev/" />
+    <meta property="og:title" content="Rainform · Data into Rain" />
+    <meta
+      property="og:description"
+      content="Rainform turns a 24-hour rainfall curve into a real-time particle landscape powered by Three.js and WebGL."
+    />
+    <meta property="og:image" content="https://rainform.pages.dev/social-preview.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Rainform liquid-metal particle rain generated from 24 hours of rainfall data" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rainform · Data into Rain" />
+    <meta
+      name="twitter:description"
+      content="Rainform turns a 24-hour rainfall curve into a real-time particle landscape."
+    />
+    <meta name="twitter:image" content="https://rainform.pages.dev/social-preview.jpg" />
+    <link rel="preload" href="/audio/rain-loop.wav" as="fetch" type="audio/wav" crossorigin />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <title>Rainform · Data into Rain</title>
+  </head>
+  <body>
+    <main class="rainfall-dashboard" aria-label="交互式降雨强度珍珠雨幕" data-i18n-aria-label="dashboardAria">
+      <div id="scene-root" class="scene-root" aria-label="可交互的珍珠雨幕数据图" data-i18n-aria-label="sceneAria"></div>
+
+      <section class="mobile-landscape-gate" role="status" aria-live="polite">
+        <span class="mobile-landscape-gate__device" aria-hidden="true"><span></span></span>
+        <div class="mobile-landscape-gate__copy">
+          <strong data-i18n="rotateTitle">Rotate to landscape</strong>
+          <p class="mobile-landscape-gate__lead" data-i18n="rotateDescription">Turn your phone sideways for the complete Rainform experience</p>
+          <ul class="mobile-landscape-gate__tips">
+            <li class="mobile-landscape-gate__sound" data-i18n="rotateSoundSuggestion">Sound on recommended</li>
+            <li data-i18n="rotateDesktopSuggestion">Best experienced on desktop</li>
+            <li class="mobile-landscape-gate__browser" data-i18n="rotateBrowserSuggestion">If this page cannot rotate, tap “⋮” and choose “Open in Browser”</li>
+          </ul>
+        </div>
+      </section>
+
+      <nav id="scene-toolbar" class="scene-toolbar" aria-label="图表工具" data-i18n-aria-label="toolbarAria">
+        <button
+          id="rainfall-editor-toggle"
+          class="rainfall-editor-toggle"
+          type="button"
+          aria-controls="rainfall-editor"
+          aria-expanded="false"
+          aria-label="编辑降雨数据"
+          title="编辑降雨数据"
+          data-i18n-aria-label="editorToggle"
+          data-i18n-title="editorToggle"
+        >
+          <span class="rainfall-editor-toggle__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M3.5 17.5 8.2 12l4.1 3.1 5.4-8.2 2.8 2.2" />
+              <circle cx="3.5" cy="17.5" r="1.25" />
+              <circle cx="8.2" cy="12" r="1.25" />
+              <circle cx="12.3" cy="15.1" r="1.25" />
+              <circle cx="17.7" cy="6.9" r="1.25" />
+              <circle cx="20.5" cy="9.1" r="1.25" />
+            </svg>
+          </span>
+        </button>
+        <button
+          id="rain-sound-toggle"
+          class="rain-sound-toggle"
+          type="button"
+          aria-pressed="false"
+          aria-label="开启雨声"
+          title="开启雨声"
+          data-i18n-aria-label="soundEnable"
+          data-i18n-title="soundEnable"
+        >
+          <span class="rain-sound-toggle__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path class="rain-sound-toggle__speaker" d="M4.5 9.2h3.1l4-3.4v12.4l-4-3.4H4.5z" />
+              <path class="rain-sound-toggle__wave rain-sound-toggle__wave--inner" d="M15 9.2c1.5 1.5 1.5 4.1 0 5.6" />
+              <path class="rain-sound-toggle__wave rain-sound-toggle__wave--outer" d="M17.8 6.6c3 3 3 7.8 0 10.8" />
+            </svg>
+          </span>
+        </button>
+      </nav>
+
+      <aside
+        id="rainfall-editor"
+        class="rainfall-editor"
+        role="dialog"
+        aria-modal="false"
+        aria-hidden="true"
+        aria-labelledby="rainfall-editor-title"
+        aria-describedby="rainfall-editor-description"
+        inert
+      >
+        <header class="rainfall-editor__header">
+          <div>
+            <p class="rainfall-editor__eyebrow">00:00–24:00</p>
+            <h1 id="rainfall-editor-title" data-i18n="editorTitle">编辑降雨数据</h1>
+            <p id="rainfall-editor-description" data-i18n="editorDescription">
+              拖动折线节点即可实时预览，松手后自动保存；也可以展开数字输入进行精确编辑。
+            </p>
+          </div>
+          <button
+            id="rainfall-editor-close"
+            class="rainfall-editor__close"
+            type="button"
+            aria-label="关闭降雨数据编辑器"
+            title="关闭"
+            data-i18n-aria-label="editorCloseAria"
+            data-i18n-title="close"
+          >
+            ×
+          </button>
+        </header>
+
+        <form id="rainfall-data-form" class="rainfall-data-form" novalidate>
+          <div class="rainfall-editor__scroll">
+            <div class="rainfall-editor__section-heading">
+              <h2 data-i18n="curveTitle">逐时降雨曲线</h2>
+              <span class="rainfall-live-badge" data-i18n="liveSave">实时保存</span>
+            </div>
+
+            <section class="rainfall-chart-card" aria-label="可拖拽降雨折线图" data-i18n-aria-label="chartAria">
+              <div class="rainfall-chart-readout" aria-live="polite">
+                <span id="rainfall-chart-time">18:00</span>
+                <strong id="rainfall-chart-value">9.1</strong>
+                <span>mm/h</span>
+              </div>
+              <svg
+                id="rainfall-line-chart"
+                class="rainfall-line-chart"
+                viewBox="0 0 720 280"
+                role="group"
+                aria-label="00:00 至 24:00 降雨量折线，可上下拖动各小时节点"
+                data-i18n-aria-label="chartSvgAria"
+              ></svg>
+              <div class="rainfall-chart-hours" aria-hidden="true">
+                <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+              </div>
+              <p class="rainfall-chart-hint" data-i18n="chartHint">上下拖动节点调整雨量 · 方向键微调 · Shift + 方向键快速调整</p>
+            </section>
+
+            <details id="rainfall-precise-editor" class="rainfall-precise-editor">
+              <summary>
+                <span data-i18n="preciseTitle">精确输入 25 个时间点</span>
+                <span data-i18n="preciseUnit">单位：mm/h</span>
+              </summary>
+              <div
+                id="rainfall-input-grid"
+                class="rainfall-input-grid"
+                role="group"
+                aria-label="00:00 至 24:00 的逐时降雨量"
+                data-i18n-aria-label="inputGridAria"
+              ></div>
+            </details>
+
+            <div class="rainfall-editor__feedback">
+              <p
+                id="rainfall-editor-errors"
+                class="rainfall-editor__error"
+                role="alert"
+                aria-live="assertive"
+                hidden
+              ></p>
+              <output
+                id="rainfall-editor-status"
+                class="rainfall-editor__status"
+                aria-live="polite"
+              ></output>
+            </div>
+          </div>
+
+          <footer class="rainfall-editor__actions">
+            <button
+              id="rainfall-restore"
+              class="rainfall-editor__button rainfall-editor__button--secondary"
+              type="button"
+            >
+              <span data-i18n="restoreDefault">恢复默认</span>
+            </button>
+            <button
+              id="rainfall-apply"
+              class="rainfall-editor__button rainfall-editor__button--primary"
+              type="submit"
+            >
+              <span data-i18n="applyPrecise">应用精确数据</span>
+            </button>
+          </footer>
+        </form>
+      </aside>
+
+      <div id="selection-readout" class="selection-readout" aria-live="polite">
+        <span class="readout-time">18:00</span>
+        <strong class="readout-value">12.6</strong>
+        <span class="readout-unit" data-i18n="axisUnit">毫米/小时</span>
+      </div>
+
+    </main>
+
+    <script type="module" src="/src/bootstrap.js"></script>
+  </body>
+</html>
