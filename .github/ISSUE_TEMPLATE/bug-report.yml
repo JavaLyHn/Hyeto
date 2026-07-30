@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible Rainform failure or regression.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Rainform. Do not disclose security vulnerabilities here.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open …
+        2. Rotate/click/drag …
+        3. Observe …
+    validations:
+      required: true
+  - type: input
+    id: viewport
+    attributes:
+      label: Viewport and orientation
+      placeholder: "844×390, mobile landscape"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: "Safari 19 on iOS 19"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Console output or screenshots
+      description: Remove personal information before attaching evidence.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: I reproduced this on the current production site or current main branch.
+          required: true
+        - label: This is not a private security vulnerability.
+          required: true

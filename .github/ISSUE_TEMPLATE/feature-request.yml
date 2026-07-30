@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a focused improvement that respects Rainform's art direction.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need or limitation does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the outcome rather than a purely subjective restyle.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Rendering and device impact
+      description: Which viewports, interactions, performance paths or translations are affected?
+    validations:
+      required: true
+  - type: checkboxes
+    id: license
+    attributes:
+      label: License
+      options:
+        - label: I understand that Rainform is source-available for noncommercial use only.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/luouhe23/Rainform/security/advisories/new
+    about: Report security issues privately.
+  - name: Live Rainform
+    url: https://rainform.pages.dev/
+    about: Verify the current production behavior before filing a report.
