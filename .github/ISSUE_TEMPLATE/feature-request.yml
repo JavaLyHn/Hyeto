@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a focused improvement that respects Rainform's art direction.
+description: Propose a focused improvement that respects Hyeto's art direction.
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
@@ -29,5 +29,5 @@ body:
     attributes:
       label: License
       options:
-        - label: I understand that Rainform is source-available for noncommercial use only.
+        - label: I understand that Hyeto is source-available for noncommercial use only.
           required: true

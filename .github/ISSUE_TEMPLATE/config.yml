@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/luouhe23/Rainform/security/advisories/new
+    url: https://github.com/JavaLyHn/Hyeto/security/advisories/new
     about: Report security issues privately.
-  - name: Live Rainform
+  - name: Upstream project
     url: https://rainform.pages.dev/
-    about: Verify the current production behavior before filing a report.
+    about: Hyeto derives from Rainform / 数据成雨 by afterimage. Check upstream behavior before filing a rendering report.

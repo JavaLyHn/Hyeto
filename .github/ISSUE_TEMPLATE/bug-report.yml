@@ -1,11 +1,11 @@
 name: Bug report
-description: Report a reproducible Rainform failure or regression.
+description: Report a reproducible Hyeto failure or regression.
 title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
-      value: Thanks for helping improve Rainform. Do not disclose security vulnerabilities here.
+      value: Thanks for helping improve Hyeto. Do not disclose security vulnerabilities here.
   - type: textarea
     id: summary
     attributes:
