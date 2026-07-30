@@ -1,10 +1,10 @@
-# Contributing to Rainform
+# Contributing to Hyeto
 
-Thanks for helping improve Rainform. This project treats visual behavior as product behavior: rendering, timing, composition, text and responsive layout changes require the same care as functional changes.
+Thanks for helping improve Hyeto. This project treats visual behavior as product behavior: rendering, timing, composition, text and responsive layout changes require the same care as functional changes.
 
 ## Before starting
 
-Open an issue before a substantial change. Explain the user problem, affected viewport and intended behavior. Purely subjective visual restyling may be declined to protect Rainform's art direction.
+Open an issue before a substantial change. Explain the user problem, affected viewport and intended behavior. Purely subjective visual restyling may be declined to protect Hyeto's art direction.
 
 ## Development
 

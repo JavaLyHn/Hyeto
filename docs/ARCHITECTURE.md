@@ -1,6 +1,6 @@
 # Architecture
 
-Rainform is a client-only Vite application. No server runtime, database or secret environment variable is required.
+Hyeto is a client-only Vite application. No server runtime, database or secret environment variable is required.
 
 ## Startup lifecycle
 

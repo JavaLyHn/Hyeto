@@ -1,10 +1,13 @@
 # Changelog
 
-All notable Rainform releases are documented here.
+All notable Hyeto releases are documented here.
 
 ## [Unreleased]
 
+- Forked from Rainform / 数据成雨 by afterimage and rebranded as Hyeto, keeping the PolyForm Noncommercial License and the upstream Required Notice.
 - Public source repository governance, validation and noncommercial licensing.
+
+Entries below this point describe the upstream Rainform history that Hyeto derives from.
 
 ## [2.0.0] - 2026-07-23
 
