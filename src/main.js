@@ -259,7 +259,7 @@ const WORLD = {
 // 调小 thickness → 从侧面看雨幕更薄、更像一片窄雨帘；调大 → 前后更立体。
 const RAIN_DEPTH = { center: 0.2, thickness: 0.85, jitter: 0.22 };
 
-const preparedRainAudio = window.__rainAudioBoot;
+const preparedRainAudio = await window.__rainAudioBoot;
 const initialShortViewportEdge = Math.min(window.innerWidth, window.innerHeight);
 const initialLongViewportEdge = Math.max(window.innerWidth, window.innerHeight);
 const mobileSoundDefault = window.matchMedia('(pointer: coarse)').matches

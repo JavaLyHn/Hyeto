@@ -77,12 +77,13 @@ let bootPromise = null;
 function bootHyeto() {
   if (bootPromise) return bootPromise;
   document.documentElement.dataset.appState = 'loading';
-  bootPromise = prepareRainAudio()
-    .catch(() => null)
-    .then(prepared => {
-      window.__rainAudioBoot = prepared;
-      return import('./main.js');
-    })
+  // Expose the pending audio graph before importing the scene so both downloads
+  // run concurrently. main.js awaits this promise at module scope instead of
+  // reading an already-settled global, which used to serialise the two fetches.
+  const audioPromise = prepareRainAudio().catch(() => null);
+  window.__rainAudioBoot = audioPromise;
+
+  bootPromise = Promise.all([audioPromise, import('./main.js')])
     .then(() => {
       document.documentElement.dataset.appState = 'ready';
     })
