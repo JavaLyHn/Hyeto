@@ -685,6 +685,8 @@ Run: `npm run check:project`
 
 Expected: `Project checks passed (70 complete translation keys per locale).` The count rises from 52 by 18. If it reports differing keys, one block is missing an entry or an indentation is wrong.
 
+A nineteenth key, `weatherErrorNoCity`, is added later during task 5 — the no-city-selected path was reusing `weatherErrorNotFound`, which told the user their search had matched nothing when no search had happened. The final total is therefore 71, which is what task 8 verifies.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -1402,6 +1404,22 @@ actual events: that typing renders a list, that arrows move `aria-activedescenda
 that Enter fills the input, or that switching city aborts the in-flight request.
 This task closes that gap without adding a test framework.
 
+It also carries the only regression cover for four defects found during review of
+tasks 4 and 5, every one of which was reachable through ordinary use and none of
+which any Node-level test can reach:
+
+| Defect | Why it needs a DOM to catch |
+|---|---|
+| Enter in the city input submitted the enclosing `<form>`, silently applying staged draft rainfall data | requires a real form and native submit-on-Enter |
+| Escape closed the whole editor dialog instead of only the suggestion list | requires event propagation to an ancestor listener |
+| An in-flight search repainted a list the user had already dismissed | requires real event timing around an `AbortController` |
+| Aborting a load left every load control permanently disabled and the status stuck on "loading" | requires the two request flows to overlap in real time |
+
+The extracted `isLatestRequest` helper is explicitly **not** adequate cover for the
+last of these: its assertions only demonstrate that `===` compares identity, and
+would still pass if the check were wired to the wrong variable or omitted from one
+of `run()`'s branches. The probe is where that fix actually gets tested.
+
 **Files:**
 - Create: `probe/weather-panel.html`
 - Create: `scripts/check-weather-dom.mjs`
@@ -1419,10 +1437,20 @@ writes every assertion result into `data-probe` on the root element, which is wh
 `--dump-dom` reports back. It has no `requestAnimationFrame` loop, so the page
 settles and the dump fires.
 
+The mount is wrapped in a `<form>` with a submit button, mirroring the real app
+where the panel sits inside `#rainfall-data-form`. Without that wrapper the
+Enter-submits-the-form defect is untestable. An ancestor keydown listener stands in
+for the editor dialog's own Escape handler.
+
 ```html
 <!doctype html>
 <title>weather panel probe</title>
-<main id="mount"></main>
+<div id="dialog">
+  <form id="host-form">
+    <main id="mount"></main>
+    <button id="host-submit" type="submit">apply</button>
+  </form>
+</div>
 <script type="module">
   import { createWeatherPanel } from '/src/weather-panel.js';
 
@@ -1459,6 +1487,17 @@ settles and the dump fires.
       return { date: '2026-07-18', peak: 11, total: 24.2 };
     }
   };
+
+  // Stand-ins for the two ancestors the real panel lives inside.
+  let formSubmits = 0;
+  let dialogEscapes = 0;
+  document.querySelector('#host-form').addEventListener('submit', event => {
+    event.preventDefault();
+    formSubmits += 1;
+  });
+  document.querySelector('#dialog').addEventListener('keydown', event => {
+    if (event.key === 'Escape') dialogEscapes += 1;
+  });
 
   let applied = null;
   let status = '';
@@ -1539,6 +1578,75 @@ settles and the dump fires.
     await new Promise(resolve => setTimeout(resolve, 50));
     check('load did not apply 25 values', Array.isArray(applied) && applied.length === 25);
     check('status not reported', status.length > 0);
+
+    // --- Regression cover for defects found in review of tasks 4 and 5 ---
+
+    // Enter must never submit the enclosing form, in either list state.
+    // Regression: this silently applied staged draft rainfall data.
+    api.geocodeCity = async () => cities;
+    formSubmits = 0;
+    input.value = 'a';                       // below MINIMUM_QUERY_LENGTH: list stays closed
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('list unexpectedly open on 1 char', results.hidden === true);
+    press('Enter');
+    check('Enter submitted the form with the list closed', formSubmits === 0);
+
+    await type('杭州');                       // list open
+    press('Enter');
+    check('Enter submitted the form with the list open', formSubmits === 0);
+    check('Enter did not commit the option', input.value === '杭州 / 浙江 / 中国');
+
+    // Escape is two-step: the first dismisses only the popup, the second reaches
+    // the dialog. Regression: one keystroke did both.
+    await type('杭州');
+    dialogEscapes = 0;
+    press('Escape');
+    check('first Escape left the list open', results.hidden === true);
+    check('first Escape reached the dialog', dialogEscapes === 0);
+    press('Escape');
+    check('second Escape did not reach the dialog', dialogEscapes === 1);
+
+    // Dismissing while a search is in flight must abort it and must not repaint.
+    // Regression: a stale result reopened a list the user had closed.
+    let slowSearchAborted = false;
+    api.geocodeCity = (query, { signal } = {}) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        slowSearchAborted = true;
+        reject(new DOMException('aborted', 'AbortError'));
+      }, { once: true });
+      setTimeout(() => resolve(cities), 400);
+    });
+    input.value = '上海';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 320));   // past debounce, mid-request
+    press('Escape');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    check('dismissing did not abort the in-flight search', slowSearchAborted === true);
+    check('a dismissed list was repainted', results.hidden === true);
+
+    // A load and a search are independent: editing the city box mid-load must not
+    // strand the controls. Regression: every load control stayed disabled forever
+    // and the status stayed stuck on the loading string.
+    api.geocodeCity = async () => cities;
+    let releaseLoad;
+    api.fetchTodayPrecipitation = () => new Promise(resolve => {
+      releaseLoad = () => resolve({
+        values: Array.from({ length: 25 }, () => 3),
+        meta: { date: '2026-07-18', source: 'forecast', timezone: 'Asia/Shanghai', peak: 3, gaps: 0 }
+      });
+    });
+    const todayButton = document.querySelector('[data-weather="today"]');
+    todayButton.click();
+    await tick();
+    check('controls were not disabled during a load', todayButton.disabled === true);
+    input.value = 'x';                       // drops below the query minimum mid-load
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    releaseLoad();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('controls left disabled after editing the city mid-load', todayButton.disabled === false);
+    check('status left stuck on loading', status !== 'weatherLoading');
   } catch (error) {
     failures.push(`threw: ${error?.message ?? error}`);
   }
@@ -1638,10 +1746,20 @@ If it reports `FAIL` the message names each broken expectation, for example
 `FAIL ArrowDown did not wrap | Enter did not fill the input`. If it reports that
 the probe said nothing, Chrome is not at the default path — set `CHROME_PATH`.
 
-To confirm the probe can actually fail rather than passing vacuously, temporarily
-change `MINIMUM_QUERY_LENGTH` in `src/weather-panel.js` to `1`, run it again, and
-check it reports `FAIL single character queried the api`. Restore the value
-afterwards.
+**Confirm the probe can actually fail rather than passing vacuously.** Run three
+mutations, one at a time, restoring the file after each. Each must produce the
+named failure; if any mutation still passes, that assertion is not testing what it
+claims and must be fixed before this task is done.
+
+| Mutation in `src/weather-panel.js` | Expected failure |
+|---|---|
+| Set `MINIMUM_QUERY_LENGTH` to `1` | `FAIL single character queried the api` |
+| Delete `event.stopPropagation()` from the Escape branch | `FAIL first Escape reached the dialog` |
+| In `run()`'s `finally`, change `isLatestRequest(controller, activeLoad)` to `!controller.signal.aborted` | `FAIL controls left disabled after editing the city mid-load` |
+
+The third mutation restores the exact Critical defect that review found in task 5,
+so it is the one that proves this probe carries real regression cover rather than
+restating that `===` works.
 
 - [ ] **Step 5: Confirm the portable pipeline is unchanged**
 
@@ -1887,7 +2005,7 @@ Also update the `WeatherError` code union in the architecture section to include
 
 Run: `npm run check`
 
-Expected: all stages pass, with 70 translation keys per locale.
+Expected: all stages pass, with 71 translation keys per locale — 70 from task 3 plus weatherErrorNoCity, added during task 5 to stop the no-city-selected path claiming the search had found nothing.
 
 Then run `npm run dev` and confirm once more, in a real browser, that: the scene renders; sound still plays; the weather panel loads a live reading and a historical day; and a failed load leaves the curve untouched.
 
@@ -1910,7 +2028,7 @@ code; the table now lists the 'shape' code the implementation uses."
 | Hourly reduction, error mapping, date rollover, wettest-day scan | `scripts/check-weather-api.mjs`, in `npm run check`, no network or browser |
 | Panel decision logic: error-key mapping, city labelling, index wrapping, status composition, query gate | `scripts/check-weather-panel.mjs`, in `npm run check`, no browser |
 | Panel DOM behaviour: list rendering, ARIA state, arrow/Enter/Escape handling, abort on supersede, failure leaves no stale list | `scripts/check-weather-dom.mjs` via `npm run check:dom` — opt-in, needs Chrome |
-| Locale parity for the 18 new keys | existing `check-project.mjs` gate |
+| Locale parity for the 19 new keys | existing `check-project.mjs` gate |
 | Production safeguards, notices, bundle contents | existing `check-project.mjs` and `check-dist.mjs` |
 | Visual layout, spacing, colour, failure-dot placement, how the scene's rebuild looks on swap | manual, in a real browser — no automation covers appearance |
 
