@@ -78,7 +78,25 @@ const messages = {
     dataValueError: '降雨量必须是大于或等于 0 的有限数字',
     webglTitle: '无法显示实时雨景',
     webglUnavailable: '此设备或浏览器无法创建 WebGL2 图形环境。请升级浏览器，或确认硬件加速已开启。',
-    webglInterrupted: '图形环境暂时中断，正在等待浏览器恢复。'
+    webglInterrupted: '图形环境暂时中断，正在等待浏览器恢复。',
+    weatherTitle: '天气数据',
+    weatherCityLabel: '城市',
+    weatherCityPlaceholder: '搜索城市……',
+    weatherDateLabel: '日期',
+    weatherToday: '今日实时',
+    weatherWettest: '最近最强降雨日',
+    weatherSearching: '正在搜索……',
+    weatherLoading: '正在加载……',
+    weatherLoaded: ({ city, date, peak }) => `已加载 ${city} · ${date} · 峰值 ${peak} mm/h`,
+    weatherNoRain: '当日无降雨',
+    weatherNoRainDefault: '当日无降雨，已显示默认数据',
+    weatherGaps: ({ count }) => `${count} 小时数据缺失`,
+    weatherErrorNetwork: '无法连接天气服务，请检查网络后重试',
+    weatherErrorNotFound: '未找到该城市',
+    weatherErrorEmpty: '该日期暂无数据，试试「今日实时」',
+    weatherErrorRange: '日期超出可查询范围',
+    weatherErrorRateLimit: '请求过于频繁，请稍后再试',
+    weatherErrorShape: '天气服务返回了无法识别的数据'
   },
   en: {
     documentTitle: 'Hyeto · Data into Rain',
@@ -132,7 +150,25 @@ const messages = {
     dataValueError: 'Rainfall must be a finite number greater than or equal to 0',
     webglTitle: 'Unable to display the live rain scene',
     webglUnavailable: 'This device or browser could not create a WebGL2 graphics context. Update the browser or make sure hardware acceleration is enabled.',
-    webglInterrupted: 'The graphics context was interrupted. Waiting for the browser to restore it.'
+    webglInterrupted: 'The graphics context was interrupted. Waiting for the browser to restore it.',
+    weatherTitle: 'Weather data',
+    weatherCityLabel: 'City',
+    weatherCityPlaceholder: 'Search for a city',
+    weatherDateLabel: 'Date',
+    weatherToday: 'Today, live',
+    weatherWettest: 'Wettest recent day',
+    weatherSearching: 'Searching…',
+    weatherLoading: 'Loading…',
+    weatherLoaded: ({ city, date, peak }) => `Loaded ${city} · ${date} · peak ${peak} mm/h`,
+    weatherNoRain: 'No rain that day',
+    weatherNoRainDefault: 'No rain that day, so the built-in data is shown',
+    weatherGaps: ({ count }) => `${count} hours of data are missing`,
+    weatherErrorNetwork: 'Could not reach the weather service. Check the network and try again.',
+    weatherErrorNotFound: 'No city matched that search',
+    weatherErrorEmpty: 'No data for that date. Try "Today, live".',
+    weatherErrorRange: 'That date is outside the queryable range',
+    weatherErrorRateLimit: 'Too many requests. Try again shortly.',
+    weatherErrorShape: 'The weather service returned unrecognisable data'
   }
 };
 
