@@ -24,7 +24,8 @@
     "check:project": "node scripts/check-project.mjs",
     "check:dist": "node scripts/check-dist.mjs",
     "check:weather": "node scripts/check-weather-api.mjs",
-    "check": "npm run check:project && npm run check:weather && npm run build && npm run check:dist"
+    "check:panel": "node scripts/check-weather-panel.mjs",
+    "check": "npm run check:project && npm run check:weather && npm run check:panel && npm run build && npm run check:dist"
   },
   "dependencies": {
     "three": "^0.165.0"
