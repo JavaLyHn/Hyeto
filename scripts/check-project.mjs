@@ -49,6 +49,29 @@ if (!html.includes('PolyForm Noncommercial 1.0.0')) {
   throw new Error('index.html is missing the source license notice.');
 }
 
+// The development-only tuning toggle is injected as a fixed-position control. It
+// must not share the scene toolbar's corner offset, or it renders underneath the
+// editor and sound buttons and is unreachable in dev.
+const styles = await readFile('src/styles.css', 'utf8');
+
+function declaredTop(source, ruleStart) {
+  const start = source.indexOf(ruleStart);
+  if (start === -1) throw new Error(`Could not find the CSS rule ${ruleStart}`);
+  const body = source.slice(start, source.indexOf('}', start));
+  const top = /top:\s*([^;}]+)/.exec(body);
+  if (!top) throw new Error(`${ruleStart} declares no top offset.`);
+  return top[1].replace(/\s+/g, '');
+}
+
+const toolbarTop = declaredTop(styles, '.scene-toolbar {');
+const tuningTop = declaredTop(mainSource, '#tuning-toggle{position');
+if (toolbarTop === tuningTop) {
+  throw new Error(
+    `The tuning toggle overlaps the scene toolbar: both declare top: ${toolbarTop}. `
+    + 'Offset the development-only toggle so it clears the toolbar.'
+  );
+}
+
 function objectKeys(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start + startMarker.length);
