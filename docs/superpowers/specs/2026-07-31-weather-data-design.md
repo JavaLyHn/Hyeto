@@ -1,7 +1,7 @@
 # Weather data integration — design
 
 Date: 2026-07-31
-Status: approved, not yet implemented
+Status: implemented
 
 ## Goal
 
@@ -68,7 +68,7 @@ is already 7387 lines; this feature adds no significant weight to it.
 
 ```js
 export class WeatherError extends Error {}
-// .code: 'network' | 'notFound' | 'empty' | 'range' | 'rateLimit'
+// .code: 'network' | 'notFound' | 'empty' | 'range' | 'rateLimit' | 'shape'
 
 export function geocodeCity(query, { language, signal })
   → Promise<Array<{ id, name, admin1, country, latitude, longitude }>>
@@ -125,8 +125,14 @@ Injection also keeps the dependency direction one-way and avoids a circular impo
 
 New keys must be plain alphanumeric identifiers at four-space indentation, matching
 the validator's `^\s{4}([A-Za-z][A-Za-z0-9]*):` pattern. Values may be strings or
-interpolation arrow functions, as `dataLengthError` already is. Roughly 14 new keys
-are needed, in both locale blocks.
+interpolation arrow functions, as `dataLengthError` already is. 19 new keys were
+needed, in both locale blocks, bringing the project total to 71 complete
+translation keys per locale. Eighteen of those cover the panel's own labels,
+statuses and error messages. The nineteenth, `weatherErrorNoCity`, was added
+during implementation: the no-city-selected path (a shortcut or the date input
+used before any city had been chosen) had been reusing `weatherErrorNotFound`,
+which told the viewer their search had matched nothing when no search had
+happened at all.
 
 ## UI
 
@@ -147,8 +153,21 @@ no new focus trap, `inert` handling or mobile layout work.
   recent day" resolves a date via `findWettestRecentDay`, fills the date input,
   then loads through the archive path. The second shortcut exists because picking
   an arbitrary historical date usually lands on light or no rain.
-- **Concurrency** — each request carries an `AbortController`; changing city or
-  re-clicking a shortcut cancels the previous one. Buttons disable while loading.
+- **Concurrency** — the panel keeps two independent `AbortController`s, not one:
+  a search controller, aborted whenever the suggestion list is dismissed or a
+  new search supersedes it, and a load controller, aborted only when a newer
+  precipitation load supersedes it. These must stay separate. An earlier
+  version shared a single controller between the city search and the
+  precipitation load; dismissing the suggestion list then aborted an
+  in-flight load, and the load's own cleanup skipped re-enabling its
+  controls because it read the shared controller's abort state, leaving
+  every load control permanently disabled with the status stuck on
+  "loading". Do not simplify this back into one controller. Because a
+  controller reports itself as aborted the instant anything cancels it —
+  indistinguishable, from the signal alone, between "superseded" and
+  "aborted for some unrelated reason" — currency is checked instead as an
+  identity comparison against the panel's current load controller, never by
+  inspecting the signal's own `aborted` state. Buttons disable while loading.
 - **After a successful load** — the status region shows city, date and peak, and
   the curve stays fully draggable. It is never locked. When `meta.gaps > 0` the
   status appends a note that N hours were missing.
@@ -184,6 +203,18 @@ the user already has on screen.
 The toolbar failure marker is a `data-*` attribute on the editor toggle button,
 following the existing `root.dataset.appState` convention, styled in `styles.css`
 rather than driven by inline style changes.
+
+Step 5's message is deliberately retained across the editor's own reopen
+behaviour, and this is not incidental. Opening the rainfall editor already calls
+`syncInputs` for its own reasons — populating the number inputs and chart from
+`activeRainfall` — and `syncInputs` unconditionally clears the error region. Left
+alone, that means the toolbar's failure marker invites the viewer to open the
+panel and read why the load failed, and opening the panel is exactly what
+destroys that explanation. The wiring keeps the last weather error message
+aside and re-asserts it into the error region immediately after `syncInputs`
+runs, every time the editor opens, until a later load succeeds and clears the
+message and the marker together. Do not remove the reassertion as apparently
+redundant with `syncInputs`; it exists because of `syncInputs`, not despite it.
 
 A stored city is validated on read: if `rf-weather-city` is missing any of
 `name`, `latitude` or `longitude`, or the coordinates are not finite numbers, the
@@ -229,6 +260,16 @@ days peaked at or above 5 mm/h.
 | `empty` | all 25 points null, including a hand-typed today | no data for that date, try "today, live" |
 | `range` | outside the archive window, e.g. before 1940 | date outside the queryable range |
 | `rateLimit` | HTTP 429 | too many requests, try again later |
+| `shape` | the payload is malformed or has fewer than 25 points | the weather service returned unrecognisable data |
+
+This table is not the full set of ways a request can end. A caller-initiated
+abort — the panel superseding its own in-flight search or load — propagates the
+original `AbortError`, not a `WeatherError`, and is never reported through
+`setError`; the panel simply discards the stale response. Only the module's own
+10-second timeout produces `WeatherError('network')`. A caller must therefore
+distinguish "I cancelled this" from "the network failed" by consulting its own
+signal's state, never by inspecting the error object it receives, since the two
+cases are not distinguishable from the error alone.
 
 Any failure leaves whatever curve is on screen untouched and writes only to the
 error region. A failed load never replaces a dataset the viewer already loaded,
@@ -267,7 +308,7 @@ and add no assets.
 |---|---|
 | `src/weather-api.js` | new — network layer |
 | `src/weather-panel.js` | new — panel layer |
-| `src/main.js` | ~14 bilingual i18n keys, ~20 lines of wiring |
+| `src/main.js` | 19 bilingual i18n keys, ~20 lines of wiring |
 | `index.html` | container for the new editor section |
 | `src/styles.css` | panel styles following the `rainfall-editor__*` convention |
 | `public/_headers` | three Open-Meteo hosts added to `connect-src` |

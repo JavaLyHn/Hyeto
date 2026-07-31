@@ -23,6 +23,7 @@ Hyeto turns 25 hourly rainfall values from 00:00–24:00 into an interactive Thr
 - 桌面端视角拖拽、双击重置、声音切换与精确数据输入 / Desktop camera, reset, sound and precise editing
 - 移动端横屏适配、安全区域与方向切换恢复 / Mobile landscape, safe-area and orientation recovery
 - 中英文界面 / Chinese and English interface
+- 可加载真实降雨数据：今日实时或 1940 年以来任意历史日期，数据来自 Open-Meteo 约 11 公里分辨率的网格化预报与再分析产品（并非地面观测站数据，坐标会吸附至最近的模型网格点）/ Load real precipitation: today's live reading or any historical day back to 1940, sourced from Open-Meteo's gridded ~11 km forecast and reanalysis output (not station observations — coordinates snap to the nearest model grid point)
 
 ## 本地开发 / Development
 
