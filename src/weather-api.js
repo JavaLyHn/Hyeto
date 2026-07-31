@@ -60,15 +60,31 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MINIMUM_QUERY_LENGTH = 2;
 
 async function requestJson(url, { signal, fetch: fetchImpl = globalThis.fetch } = {}) {
+  // A signal that is already aborted before the request starts must prevent the
+  // request from ever reaching fetch, and the caller's own cancellation reason
+  // (an AbortError) should surface as-is rather than as a fabricated network error.
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+  }
+
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(abort, REQUEST_TIMEOUT_MS);
+  // Distinguishes this function's own timeout (a genuine network problem) from a
+  // caller-initiated cancellation mid-flight (not a network failure at all).
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort();
+  }, REQUEST_TIMEOUT_MS);
 
   let response;
   try {
     response = await fetchImpl(url, { signal: controller.signal });
-  } catch {
+  } catch (error) {
+    if (!timedOut && signal?.aborted) {
+      throw error;
+    }
     throw new WeatherError('network', 'Could not reach the weather service.');
   } finally {
     clearTimeout(timer);

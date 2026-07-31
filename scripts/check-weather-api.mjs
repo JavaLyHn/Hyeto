@@ -90,6 +90,20 @@ async function expectAsyncCode(code, run) {
   assert.fail(`expected a WeatherError with code "${code}"`);
 }
 
+// Accepts either a thunk (called and awaited here) or an already-started promise,
+// so it can check both a pre-aborted call and one aborted mid-flight.
+async function expectAbortError(promiseOrThunk) {
+  const promise = typeof promiseOrThunk === 'function' ? promiseOrThunk() : promiseOrThunk;
+  try {
+    await promise;
+  } catch (error) {
+    assert.equal(error.name, 'AbortError', `expected an AbortError, got ${error?.name}`);
+    assert.ok(!(error instanceof WeatherError), 'a caller-initiated abort must not be reported as a WeatherError');
+    return;
+  }
+  assert.fail('expected an AbortError');
+}
+
 // Geocoding maps results and preserves admin1 for disambiguation.
 {
   const fetchImpl = fakeFetch({
@@ -126,6 +140,43 @@ await expectAsyncCode('rateLimit', () =>
 // A rejecting fetch raises 'network'.
 await expectAsyncCode('network', () =>
   geocodeCity('shanghai', { fetch: async () => { throw new TypeError('blocked'); } }));
+
+// A signal that is already aborted before the call prevents the request entirely.
+{
+  const fetchImpl = fakeFetch();
+  const controller = new AbortController();
+  controller.abort();
+  await expectAbortError(() => geocodeCity('shanghai', { signal: controller.signal, fetch: fetchImpl }));
+  assert.equal(fetchImpl.calls.length, 0);
+}
+
+// A caller-initiated abort mid-flight surfaces as an AbortError, not a network WeatherError.
+{
+  const calls = [];
+  const fetchImpl = (url, { signal } = {}) => {
+    calls.push(String(url));
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+    });
+  };
+  const controller = new AbortController();
+  const promise = geocodeCity('shanghai', { signal: controller.signal, fetch: fetchImpl });
+  controller.abort();
+  await expectAbortError(promise);
+  assert.equal(calls.length, 1);
+}
+
+// A rejection that is not caused by the caller's own signal aborting (this is how a
+// genuine timeout — this function's own controller firing — looks from the outside)
+// is still reported as 'network', never mistaken for a caller-initiated cancellation.
+{
+  const controller = new AbortController();
+  const fetchImpl = async () => {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  };
+  await expectAsyncCode('network', () =>
+    geocodeCity('shanghai', { signal: controller.signal, fetch: fetchImpl }));
+}
 
 // Today's reading uses the forecast host and asks for two days.
 {
