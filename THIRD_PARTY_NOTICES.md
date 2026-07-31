@@ -9,6 +9,6 @@ Transitive development dependencies and their resolved versions are recorded in 
 
 Hyeto's rain visualization derives from Rainform / 数据成雨 © 2026 afterimage (<https://rainform.pages.dev/>), which is not a third-party dependency but the upstream work this project is based on. See [NOTICE.md](NOTICE.md).
 
-`public/audio/rain-loop.wav` is generated deterministically by `scripts/generate-rain-audio.mjs`. It does not contain a third-party recording, music track or audio sample.
+`public/audio/rain-loop.m4a` is encoded from a WAV that `scripts/generate-rain-audio.mjs` synthesises deterministically. It does not contain a third-party recording, music track or audio sample.
 
 Contributors must verify the origin and redistribution rights of any new code, media, font, audio or dataset before adding it to the repository.

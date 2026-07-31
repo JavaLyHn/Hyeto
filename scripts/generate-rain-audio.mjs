@@ -83,8 +83,15 @@ for (let index = 0; index < sampleCount; index += 1) {
   wav.writeInt16LE(Math.round(clamped * 32_767), 44 + index * bytesPerSample);
 }
 
+// The uncompressed WAV is a build input, not a shipped asset: at 22050 Hz mono it
+// is roughly seven times the size of the AAC file the site actually loads, and it
+// barely responds to gzip. Write it to a working directory and encode from there.
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const outputPath = resolve(scriptDirectory, '../public/audio/rain-loop.wav');
+const outputPath = resolve(scriptDirectory, '../.audio-work/rain-loop.wav');
+const shippedPath = resolve(scriptDirectory, '../public/audio/rain-loop.m4a');
 mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(outputPath, wav);
 console.log(`Generated ${outputPath} (${durationSeconds}s, ${sampleRate} Hz, mono PCM).`);
+console.log('\nEncode the shipped asset from it with either:');
+console.log(`  afconvert -f m4af -d aac -b 48000 ${outputPath} ${shippedPath}`);
+console.log(`  ffmpeg -y -i ${outputPath} -c:a aac -b:a 48k ${shippedPath}`);

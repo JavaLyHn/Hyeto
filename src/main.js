@@ -358,7 +358,7 @@ function preloadRainSound() {
   if (rainAudio.buffer) return Promise.resolve(acceptRainSoundBuffer(rainAudio.buffer));
   if (rainAudio.preloadPromise) return rainAudio.preloadPromise;
 
-  rainAudio.preloadPromise = fetch('/audio/rain-loop.wav')
+  rainAudio.preloadPromise = fetch('/audio/rain-loop.m4a')
     .then(response => {
       if (!response.ok) throw new Error(`Rain audio request failed: ${response.status}`);
       return response.arrayBuffer();

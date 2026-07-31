@@ -17,7 +17,19 @@ async function walk(directory) {
 
 const files = await walk(dist);
 const relativeFiles = files.map(file => path.relative(dist, file));
-const requiredFiles = ['index.html', '_headers', 'robots.txt', 'favicon.png', 'audio/rain-loop.wav'];
+const requiredFiles = [
+  'index.html',
+  '_headers',
+  'robots.txt',
+  'favicon.png',
+  'apple-touch-icon.png',
+  'audio/rain-loop.m4a'
+];
+
+const uncompressedAudio = relativeFiles.filter(file => file.endsWith('.wav'));
+if (uncompressedAudio.length) {
+  throw new Error(`Ship compressed audio only; found ${uncompressedAudio.join(', ')}`);
+}
 
 for (const file of requiredFiles) {
   if (!relativeFiles.includes(file)) throw new Error(`Production output is missing ${file}.`);

@@ -62,7 +62,7 @@ async function prepareRainAudio() {
   gain.gain.value = 0;
   gain.connect(context.destination);
 
-  const response = await fetch('/audio/rain-loop.wav');
+  const response = await fetch('/audio/rain-loop.m4a');
   if (!response.ok) throw new Error(`Rain audio request failed: ${response.status}`);
   const encoded = await response.arrayBuffer();
   const buffer = await context.decodeAudioData(encoded);

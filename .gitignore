@@ -9,6 +9,7 @@ dist/
 .cache/
 .coverage/
 .video-work/
+.audio-work/
 exports/
 .private-backups/
 .claude/
