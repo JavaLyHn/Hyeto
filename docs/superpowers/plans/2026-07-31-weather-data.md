@@ -30,14 +30,47 @@
 | File | Responsibility |
 |---|---|
 | `src/weather-api.js` | new — URL building, fetch with timeout/abort, HTTP status to error mapping, pure hourly-series reduction |
-| `src/weather-panel.js` | new — the editor section's DOM, city search, date input, shortcuts; no network access |
+| `src/weather-panel.js` | new — the editor section's DOM, city search, date input, shortcuts; no network access. Its decision logic is exported as pure functions so Node can test it. |
 | `scripts/check-weather-api.mjs` | new — `node:assert` cases driving `weather-api.js` with a fake `fetch` |
+| `scripts/check-weather-panel.mjs` | new — `node:assert` cases for the panel's pure decision functions, no DOM needed |
+| `scripts/check-weather-dom.mjs` | new — opt-in headless-Chrome probe for real DOM behaviour; **not** part of `npm run check` |
+| `probe/weather-panel.html` | new — dev-only page that mounts the panel against a fake api so the probe can drive it |
 | `src/main.js` | i18n keys, panel mounting, startup auto-load, city persistence |
 | `index.html` | container element for the panel, inside the editor scroll container |
 | `src/styles.css` | panel styles following the `rainfall-editor__*` convention |
 | `public/_headers` | three Open-Meteo hosts added to `connect-src` |
 | `package.json` | `check` runs the new validation script |
 | `THIRD_PARTY_NOTICES.md`, `README.md` | data-source attribution and feature documentation |
+
+## How the Panel Gets Tested Without a DOM Framework
+
+The project has no jsdom and no test framework, so the panel is verified in two
+layers rather than left entirely to eyeballs.
+
+**Layer 1 — pure decision functions, via `npm run check:panel`, inside
+`npm run check`.** The panel's branching logic (error-code mapping, result
+labelling, keyboard index arithmetic, status-line composition, the minimum-query
+gate) is exported as pure functions. `src/weather-panel.js` has no module-level
+side effects — only constants and function declarations — so Node can import it
+and call these directly without a DOM ever existing. This runs everywhere.
+
+**Layer 2 — real DOM behaviour, opt-in via `npm run check:dom`.** A dev-only
+probe page mounts the panel against a fake api, dispatches real `input` and
+`keydown` events, and writes assertions into a DOM attribute that headless Chrome
+reports back through `--dump-dom`.
+
+`--dump-dom` never fires on the app itself, because the scene's
+`requestAnimationFrame` loop means the page never goes idle. A probe page that
+mounts only the panel has no such loop, so it does settle and can be dumped. This
+was confirmed in practice: the same technique successfully reported AAC decode
+results from a probe page during the audio work.
+
+Layer 2 requires Google Chrome on the machine, which is why it stays out of
+`npm run check` — the pipeline must not fail on a machine without a browser.
+
+What neither layer covers, and what still needs human eyes: visual layout,
+spacing, colour, the failure dot's position, and how the scene's rebuild looks
+when a dataset swaps in.
 
 ---
 
@@ -57,7 +90,7 @@ The reduction from an Open-Meteo hourly payload to the scene's 25 values is the 
   - `class WeatherError extends Error` with `.code: 'network' | 'notFound' | 'empty' | 'range' | 'rateLimit' | 'shape'` and `.name === 'WeatherError'`.
   - `reduceHourlySeries(hourly, { source, timezone })` → `{ values: number[25], meta: { date: string, source: string, timezone: string, peak: number, gaps: number } }`.
 
-Note: `'shape'` extends the spec's five error codes to six. The spec's validation list requires an error when a series is not 25 points long but does not name its code; Task 7 updates the spec's table to match.
+Note: `'shape'` extends the spec's five error codes to six. The spec's validation list requires an error when a series is not 25 points long but does not name its code; Task 8 updates the spec's table to match.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -674,11 +707,79 @@ from the start rather than after the UI is built."
 - Modify: `index.html:133-138` (inside `.rainfall-editor__scroll`, before the existing `.rainfall-editor__section-heading`)
 - Modify: `src/styles.css` (append at end of file)
 
+**Files (additional):**
+- Create: `scripts/check-weather-panel.mjs`
+- Modify: `package.json` (the `check` script)
+
 **Interfaces:**
 - Consumes: `geocodeCity` and `WeatherError` from Task 2; the i18n keys from Task 3.
-- Produces: `createWeatherPanel({ mount, api, i18n, onApply, setStatus, setError })` → `{ destroy() }`. In this task `onApply` is not yet called; Task 5 adds the paths that call it.
+- Produces:
+  - `createWeatherPanel({ mount, api, i18n, onApply, setStatus, setError })` → `{ getSelectedCity, setSelectedCity, reportError, destroy }`. In this task `onApply` is not yet called; Task 5 adds the paths that call it.
+  - `MINIMUM_QUERY_LENGTH` — the number `2`.
+  - `describeCity(city)` → `string`, the `name / admin1 / country` label.
+  - `errorKeyFor(error)` → the i18n key for a `WeatherError` code, falling back to `weatherErrorNetwork`.
+  - `nextActiveIndex(current, step, length)` → `number`, wrapping index arithmetic for arrow keys.
 
-- [ ] **Step 1: Add the mount point**
+- [ ] **Step 1: Write the failing test for the pure functions**
+
+Create `scripts/check-weather-panel.mjs`:
+
+```js
+// Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
+import assert from 'node:assert/strict';
+import { WeatherError } from '../src/weather-api.js';
+import {
+  MINIMUM_QUERY_LENGTH,
+  describeCity,
+  errorKeyFor,
+  nextActiveIndex
+} from '../src/weather-panel.js';
+
+// Duplicate city names are distinguished by admin1.
+assert.equal(
+  describeCity({ name: '杭州', admin1: '浙江', country: '中国' }),
+  '杭州 / 浙江 / 中国'
+);
+assert.equal(
+  describeCity({ name: '杭州', admin1: '四川', country: '中国' }),
+  '杭州 / 四川 / 中国'
+);
+
+// Missing parts collapse instead of leaving empty separators.
+assert.equal(describeCity({ name: 'Shanghai', admin1: '', country: '' }), 'Shanghai');
+assert.equal(describeCity({ name: 'Shanghai', admin1: '', country: 'China' }), 'Shanghai / China');
+
+// Every error code maps to its own message key.
+assert.equal(errorKeyFor(new WeatherError('network', 'x')), 'weatherErrorNetwork');
+assert.equal(errorKeyFor(new WeatherError('notFound', 'x')), 'weatherErrorNotFound');
+assert.equal(errorKeyFor(new WeatherError('empty', 'x')), 'weatherErrorEmpty');
+assert.equal(errorKeyFor(new WeatherError('range', 'x')), 'weatherErrorRange');
+assert.equal(errorKeyFor(new WeatherError('rateLimit', 'x')), 'weatherErrorRateLimit');
+assert.equal(errorKeyFor(new WeatherError('shape', 'x')), 'weatherErrorShape');
+
+// An unexpected failure still produces a usable message rather than blank text.
+assert.equal(errorKeyFor(new TypeError('boom')), 'weatherErrorNetwork');
+assert.equal(errorKeyFor(undefined), 'weatherErrorNetwork');
+
+// Arrow keys wrap in both directions.
+assert.equal(nextActiveIndex(0, 1, 3), 1);
+assert.equal(nextActiveIndex(2, 1, 3), 0);
+assert.equal(nextActiveIndex(0, -1, 3), 2);
+assert.equal(nextActiveIndex(-1, 1, 3), 0);
+
+// The search gate is two characters, so a single Chinese character never queries.
+assert.equal(MINIMUM_QUERY_LENGTH, 2);
+
+console.log('Weather panel checks passed.');
+```
+
+- [ ] **Step 2: Run to confirm it fails**
+
+Run: `node scripts/check-weather-panel.mjs`
+
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/weather-panel.js`.
+
+- [ ] **Step 3: Add the mount point**
 
 In `index.html`, directly after `<div class="rainfall-editor__scroll">` on line 133, insert:
 
@@ -691,9 +792,12 @@ In `index.html`, directly after `<div class="rainfall-editor__scroll">` on line 
             ></section>
 ```
 
-- [ ] **Step 2: Create the panel module**
+- [ ] **Step 4: Create the panel module**
 
-Create `src/weather-panel.js`:
+Create `src/weather-panel.js`. Note the four exported helpers above
+`createWeatherPanel`: they hold every branching decision the panel makes, so Node
+can assert them without a DOM. Keep the module free of top-level side effects, or
+importing it from a script will fail.
 
 ```js
 // Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
@@ -701,6 +805,8 @@ Create `src/weather-panel.js`:
 // Required Notice: Rainform / 数据成雨 © 2026 afterimage — https://rainform.pages.dev/
 
 const SEARCH_DEBOUNCE_MS = 300;
+
+export const MINIMUM_QUERY_LENGTH = 2;
 
 const ERROR_KEYS = {
   network: 'weatherErrorNetwork',
@@ -710,6 +816,22 @@ const ERROR_KEYS = {
   rateLimit: 'weatherErrorRateLimit',
   shape: 'weatherErrorShape'
 };
+
+// Both duplicate-name cities and sparsely populated results have to read cleanly,
+// so empty parts collapse rather than leaving stray separators.
+export function describeCity(city) {
+  return [city.name, city.admin1, city.country].filter(Boolean).join(' / ');
+}
+
+// An unrecognised failure must still produce a message the viewer can act on.
+export function errorKeyFor(error) {
+  return ERROR_KEYS[error?.code] ?? 'weatherErrorNetwork';
+}
+
+export function nextActiveIndex(current, step, length) {
+  if (length <= 0) return -1;
+  return (current + step + length) % length;
+}
 
 export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setError }) {
   let searchTimer = 0;
@@ -746,8 +868,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   cityInput.placeholder = i18n('weatherCityPlaceholder');
 
   function reportError(error) {
-    const key = error instanceof Error && ERROR_KEYS[error.code];
-    setError(i18n(key || 'weatherErrorNetwork'));
+    setError(i18n(errorKeyFor(error)));
   }
 
   function closeResults() {
@@ -757,10 +878,6 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     resultList.hidden = true;
     cityInput.setAttribute('aria-expanded', 'false');
     cityInput.removeAttribute('aria-activedescendant');
-  }
-
-  function describe(city) {
-    return [city.name, city.admin1, city.country].filter(Boolean).join(' / ');
   }
 
   function paintActive() {
@@ -774,7 +891,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
 
   function selectCity(city) {
     selectedCity = city;
-    cityInput.value = describe(city);
+    cityInput.value = describeCity(city);
     closeResults();
     mount.dispatchEvent(new CustomEvent('weather-city-selected', { detail: city }));
   }
@@ -787,7 +904,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
       item.id = `weather-panel-result-${index}`;
       item.className = 'weather-panel__result';
       item.setAttribute('role', 'option');
-      item.textContent = describe(city);
+      item.textContent = describeCity(city);
       item.addEventListener('mousedown', event => {
         event.preventDefault();
         selectCity(city);
@@ -824,7 +941,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   cityInput.addEventListener('input', () => {
     window.clearTimeout(searchTimer);
     const query = cityInput.value.trim();
-    if (query.length < 2) {
+    if (query.length < MINIMUM_QUERY_LENGTH) {
       closeResults();
       return;
     }
@@ -836,7 +953,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       const step = event.key === 'ArrowDown' ? 1 : -1;
-      activeIndex = (activeIndex + step + results.length) % results.length;
+      activeIndex = nextActiveIndex(activeIndex, step, results.length);
       paintActive();
       return;
     }
@@ -855,7 +972,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     getSelectedCity: () => selectedCity,
     setSelectedCity: city => {
       selectedCity = city;
-      cityInput.value = city ? describe(city) : '';
+      cityInput.value = city ? describeCity(city) : '';
     },
     reportError,
     destroy() {
@@ -867,7 +984,26 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
 }
 ```
 
-- [ ] **Step 3: Add the styles**
+- [ ] **Step 5: Run the pure-function test to confirm it passes**
+
+Run: `node scripts/check-weather-panel.mjs`
+
+Expected: `Weather panel checks passed.`
+
+- [ ] **Step 6: Wire it into the check pipeline**
+
+In `package.json`, add the script and extend `check`:
+
+```json
+"check:panel": "node scripts/check-weather-panel.mjs",
+"check": "npm run check:project && npm run check:weather && npm run check:panel && npm run build && npm run check:dist"
+```
+
+Run: `npm run check`
+
+Expected: all five stages pass.
+
+- [ ] **Step 7: Add the styles**
 
 Append to `src/styles.css`:
 
@@ -970,26 +1106,20 @@ Append to `src/styles.css`:
 }
 ```
 
-- [ ] **Step 4: Verify what is verifiable at this point**
+- [ ] **Step 8: Confirm what is verifiable at this point**
 
-`createWeatherPanel` is not called until Task 6, so the section renders empty for
-now. Two things are checkable here:
-
-Run: `npm run check`
-
-Expected: all stages pass. In particular `check-project.mjs` must still find the
-`messages` object, and the build must not fail on the new module.
+`createWeatherPanel` is not called from the app until Task 7, so the section
+renders empty for now. The pure functions are already covered by Step 5; the DOM
+behaviour is covered by Task 6's probe.
 
 Run: `npm run dev`, open the editor, and confirm the empty `#weather-panel`
 element exists above the curve heading in the DOM inspector, with the editor's
 scrolling and focus behaviour unchanged.
 
-The search interaction is verified in Task 6, once the panel is mounted.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/weather-panel.js index.html src/styles.css
+git add src/weather-panel.js scripts/check-weather-panel.mjs package.json index.html src/styles.css
 git commit -m "feat: add weather panel shell and city search
 
 The panel owns only its mount subtree and receives i18n, the api module and
@@ -997,7 +1127,12 @@ status callbacks by injection, so it never queries the editor's status nodes
 or imports from main.js.
 
 Results show name / admin1 / country because disambiguation is required:
-杭州 matches both 浙江 and 四川."
+杭州 matches both 浙江 and 四川.
+
+Every branching decision is exported as a pure function — error-code mapping,
+result labelling, wrapping index arithmetic — so check-weather-panel.mjs can
+assert them in Node without a DOM. The project has no jsdom, and without this
+split the panel's logic would have no regression cover at all."
 ```
 
 ---
@@ -1008,10 +1143,57 @@ Results show name / admin1 / country because disambiguation is required:
 - Modify: `src/weather-panel.js`
 
 **Interfaces:**
-- Consumes: `fetchTodayPrecipitation`, `fetchArchivePrecipitation`, `findWettestRecentDay` from Task 2; `createWeatherPanel` from Task 4.
-- Produces: `onApply(values, meta)` is now called on every successful manual load. The returned object gains `loadToday(city)` → `Promise<boolean>`, used by Task 6's startup path, resolving `true` when data was applied.
+- Consumes: `fetchTodayPrecipitation`, `fetchArchivePrecipitation`, `findWettestRecentDay` from Task 2; `createWeatherPanel`, `describeCity`, `errorKeyFor` from Task 4.
+- Produces:
+  - `onApply(values, meta)` is now called on every successful manual load. The returned object gains `loadToday(city)` → `Promise<boolean>`, used by Task 7's startup path, resolving `true` when data was applied.
+  - `composeStatus(i18n, city, meta)` → `string`, the assembled status line. Exported pure so Node can assert it.
 
-- [ ] **Step 1: Extend the markup**
+- [ ] **Step 1: Write the failing test for the status line**
+
+Append to `scripts/check-weather-panel.mjs`, before the final `console.log`, and add `composeStatus` to the import list at the top:
+
+```js
+// The i18n helper is injected, so the test supplies a predictable stand-in.
+const fakeI18n = (key, vars = {}) => {
+  if (key === 'weatherLoaded') return `loaded ${vars.city} ${vars.date} ${vars.peak}`;
+  if (key === 'weatherGaps') return `gaps ${vars.count}`;
+  if (key === 'weatherNoRain') return 'no rain';
+  return key;
+};
+const city = { name: 'Shanghai', admin1: '', country: 'China' };
+
+// A normal load reports city, date and peak to one decimal place.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-18', peak: 11, gaps: 0 }),
+  'loaded Shanghai 2026-07-18 11.0'
+);
+
+// Missing hours are disclosed rather than silently zeroed out of sight.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-18', peak: 4.25, gaps: 3 }),
+  'loaded Shanghai 2026-07-18 4.3 · gaps 3'
+);
+
+// A dry day says so explicitly, so it cannot be mistaken for a failed load.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-31', peak: 0, gaps: 0 }),
+  'loaded Shanghai 2026-07-31 0.0 · no rain'
+);
+
+// Both notes can appear together.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-31', peak: 0, gaps: 2 }),
+  'loaded Shanghai 2026-07-31 0.0 · gaps 2 · no rain'
+);
+```
+
+- [ ] **Step 2: Run to confirm it fails**
+
+Run: `node scripts/check-weather-panel.mjs`
+
+Expected: FAIL with `SyntaxError` naming `composeStatus` as a missing export.
+
+- [ ] **Step 3: Extend the markup**
 
 In `src/weather-panel.js`, append to the `mount.innerHTML` template, after the results `<ul>`:
 
@@ -1026,7 +1208,33 @@ In `src/weather-panel.js`, append to the `mount.innerHTML` template, after the r
     </div>
 ```
 
-- [ ] **Step 2: Wire the controls**
+- [ ] **Step 4: Add the pure status composer**
+
+In `src/weather-panel.js`, beside the other exported helpers, add:
+
+```js
+// Kept pure and exported so the status line's rules are assertable: a dry day
+// must announce itself, and dropped hours must be disclosed rather than being
+// silently zeroed and looking like real weather.
+export function composeStatus(i18n, city, meta) {
+  const parts = [i18n('weatherLoaded', {
+    city: city.name,
+    date: meta.date,
+    peak: meta.peak.toFixed(1)
+  })];
+  if (meta.gaps > 0) parts.push(i18n('weatherGaps', { count: meta.gaps }));
+  if (meta.peak === 0) parts.push(i18n('weatherNoRain'));
+  return parts.join(' · ');
+}
+```
+
+- [ ] **Step 5: Run to confirm it passes**
+
+Run: `node scripts/check-weather-panel.mjs`
+
+Expected: `Weather panel checks passed.`
+
+- [ ] **Step 6: Wire the controls**
 
 After the existing element lookups, add:
 
@@ -1059,14 +1267,7 @@ After the existing element lookups, add:
   }
 
   function announce(city, result) {
-    const parts = [i18n('weatherLoaded', {
-      city: city.name,
-      date: result.meta.date,
-      peak: result.meta.peak.toFixed(1)
-    })];
-    if (result.meta.gaps > 0) parts.push(i18n('weatherGaps', { count: result.meta.gaps }));
-    if (result.meta.peak === 0) parts.push(i18n('weatherNoRain'));
-    setStatus(parts.join(' · '));
+    setStatus(composeStatus(i18n, city, result.meta));
   }
 
   async function run(task) {
@@ -1144,7 +1345,7 @@ After the existing element lookups, add:
   });
 ```
 
-- [ ] **Step 3: Extend the returned object**
+- [ ] **Step 7: Extend the returned object**
 
 Replace Task 4's `return { ... }` block with this one, which adds `loadToday` and
 disposes of the new controls:
@@ -1155,7 +1356,7 @@ disposes of the new controls:
     getSelectedCity: () => selectedCity,
     setSelectedCity: city => {
       selectedCity = city;
-      cityInput.value = city ? describe(city) : '';
+      cityInput.value = city ? describeCity(city) : '';
     },
     reportError,
     destroy() {
@@ -1166,22 +1367,22 @@ disposes of the new controls:
   };
 ```
 
-- [ ] **Step 4: Verify manually**
+- [ ] **Step 8: Verify manually**
 
 Run: `npm run dev`, open the editor, pick a city, then exercise each control.
 
 Expected: "今日实时" loads today and the status line reports city, date and peak. Picking a past date loads that day. "最近最强降雨日" fills the date box and loads a day with visible rain. Typing today's date into the box produces `该日期暂无数据，试试「今日实时」`. Buttons disable while a request is in flight. Every load leaves the curve draggable.
 
-- [ ] **Step 5: Confirm the pipeline still passes**
+- [ ] **Step 9: Confirm the pipeline still passes**
 
 Run: `npm run check`
 
 Expected: all stages pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/weather-panel.js
+git add src/weather-panel.js scripts/check-weather-panel.mjs
 git commit -m "feat: add date, live and wettest-day loading to the weather panel
 
 Every request carries an AbortController so switching city or re-clicking a
@@ -1194,7 +1395,283 @@ button. That keeps the timezone boundary out of the code entirely."
 
 ---
 
-### Task 6: Wire the panel into the scene
+### Task 6: Browser probe for real DOM behaviour
+
+The pure functions are covered, but nothing yet proves the panel wires them to
+actual events: that typing renders a list, that arrows move `aria-activedescendant`,
+that Enter fills the input, or that switching city aborts the in-flight request.
+This task closes that gap without adding a test framework.
+
+**Files:**
+- Create: `probe/weather-panel.html`
+- Create: `scripts/check-weather-dom.mjs`
+- Modify: `package.json` (add `check:dom`, leave `check` alone)
+- Modify: `.gitignore`
+
+**Interfaces:**
+- Consumes: `createWeatherPanel` from Task 5.
+- Produces: `npm run check:dom`, an opt-in command. Deliberately **not** added to `check`, because it needs Google Chrome and the pipeline must stay runnable on a machine without a browser.
+
+- [ ] **Step 1: Create the probe page**
+
+Create `probe/weather-panel.html`. It mounts the panel against a fake api and
+writes every assertion result into `data-probe` on the root element, which is what
+`--dump-dom` reports back. It has no `requestAnimationFrame` loop, so the page
+settles and the dump fires.
+
+```html
+<!doctype html>
+<title>weather panel probe</title>
+<main id="mount"></main>
+<script type="module">
+  import { createWeatherPanel } from '/src/weather-panel.js';
+
+  const failures = [];
+  const check = (label, condition) => {
+    if (!condition) failures.push(label);
+  };
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  const cities = [
+    { id: 1, name: '杭州', admin1: '浙江', country: '中国', latitude: 30.29, longitude: 120.16 },
+    { id: 2, name: '杭州', admin1: '四川', country: '中国', latitude: 30.06, longitude: 102.19 }
+  ];
+
+  let geocodeCalls = 0;
+  let abortedCount = 0;
+  const api = {
+    async geocodeCity(query, { signal } = {}) {
+      geocodeCalls += 1;
+      await tick();
+      if (signal?.aborted) {
+        abortedCount += 1;
+        throw new DOMException('aborted', 'AbortError');
+      }
+      return cities;
+    },
+    async fetchTodayPrecipitation() {
+      return { values: Array.from({ length: 25 }, () => 1), meta: { date: '2026-07-31', source: 'forecast', timezone: 'Asia/Shanghai', peak: 1, gaps: 0 } };
+    },
+    async fetchArchivePrecipitation() {
+      return { values: Array.from({ length: 25 }, () => 2), meta: { date: '2026-07-18', source: 'archive', timezone: 'Asia/Shanghai', peak: 2, gaps: 0 } };
+    },
+    async findWettestRecentDay() {
+      return { date: '2026-07-18', peak: 11, total: 24.2 };
+    }
+  };
+
+  let applied = null;
+  let status = '';
+  let errorText = '';
+  const panel = createWeatherPanel({
+    mount: document.querySelector('#mount'),
+    api,
+    i18n: key => key,
+    onApply: values => { applied = values; },
+    setStatus: message => { status = message; },
+    setError: message => { errorText = message; }
+  });
+
+  const input = document.querySelector('[data-weather="city"]');
+  const results = document.querySelector('#weather-panel-results');
+  const type = async value => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // The panel debounces for 300ms; wait past it plus the fake api's tick.
+    await new Promise(resolve => setTimeout(resolve, 420));
+  };
+  const press = key => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+  try {
+    // A single character must not reach the api.
+    await type('杭');
+    check('single character queried the api', geocodeCalls === 0);
+    check('single character opened the list', results.hidden === true);
+
+    // Two characters render both matches, distinguished by admin1.
+    await type('杭州');
+    check('two characters did not query', geocodeCalls === 1);
+    check('list stayed hidden', results.hidden === false);
+    check('wrong result count', results.children.length === 2);
+    check('first label wrong', results.children[0].textContent === '杭州 / 浙江 / 中国');
+    check('second label wrong', results.children[1].textContent === '杭州 / 四川 / 中国');
+    check('combobox not expanded', input.getAttribute('aria-expanded') === 'true');
+    check('roles missing', [...results.children].every(node => node.getAttribute('role') === 'option'));
+
+    // Arrows move the active option and keep aria-activedescendant in step.
+    check('initial active option wrong', input.getAttribute('aria-activedescendant') === 'weather-panel-result-0');
+    press('ArrowDown');
+    check('ArrowDown did not advance', input.getAttribute('aria-activedescendant') === 'weather-panel-result-1');
+    press('ArrowDown');
+    check('ArrowDown did not wrap', input.getAttribute('aria-activedescendant') === 'weather-panel-result-0');
+    press('ArrowUp');
+    check('ArrowUp did not wrap', input.getAttribute('aria-activedescendant') === 'weather-panel-result-1');
+
+    // Enter commits the highlighted city and closes the list.
+    press('Enter');
+    check('Enter did not fill the input', input.value === '杭州 / 四川 / 中国');
+    check('Enter left the list open', results.hidden === true);
+    check('selected city wrong', panel.getSelectedCity()?.admin1 === '四川');
+
+    // Escape closes a reopened list without selecting.
+    await type('杭州');
+    check('list did not reopen', results.hidden === false);
+    press('Escape');
+    check('Escape left the list open', results.hidden === true);
+
+    // A second search while the first is in flight aborts the first.
+    input.value = '杭州';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 310));
+    input.value = '上海';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 420));
+    check('in-flight search was not aborted', abortedCount >= 1);
+
+    // A failing search surfaces a message and leaves no stale list.
+    api.geocodeCity = async () => { throw new TypeError('blocked'); };
+    await type('failcity');
+    check('no error surfaced', errorText === 'weatherErrorNetwork');
+    check('stale list after failure', results.hidden === true);
+
+    // Loading applies exactly 25 values.
+    document.querySelector('[data-weather="today"]').click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    check('load did not apply 25 values', Array.isArray(applied) && applied.length === 25);
+    check('status not reported', status.length > 0);
+  } catch (error) {
+    failures.push(`threw: ${error?.message ?? error}`);
+  }
+
+  document.documentElement.dataset.probe = failures.length ? `FAIL ${failures.join(' | ')}` : 'OK';
+</script>
+```
+
+- [ ] **Step 2: Create the runner**
+
+Create `scripts/check-weather-dom.mjs`. It starts Vite, drives Chrome once, and
+reads the verdict out of the dump.
+
+```js
+// Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+
+const CHROME = process.env.CHROME_PATH
+  ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const PORT = 4319;
+const PROBE_URL = `http://localhost:${PORT}/probe/weather-panel.html`;
+
+function run(command, args) {
+  return spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+async function waitForServer(url, attempts = 40) {
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // not up yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`The dev server did not answer at ${url}`);
+}
+
+const server = run('npx', ['vite', '--port', String(PORT), '--strictPort']);
+let chrome;
+try {
+  await waitForServer(PROBE_URL);
+
+  // --headless=old is required: the new headless mode never returns from
+  // --dump-dom with --virtual-time-budget on this setup.
+  chrome = run(CHROME, [
+    '--headless=old',
+    '--disable-gpu',
+    '--no-sandbox',
+    `--user-data-dir=${process.env.TMPDIR ?? '/tmp'}/hyeto-probe-profile`,
+    '--virtual-time-budget=8000',
+    '--dump-dom',
+    PROBE_URL
+  ]);
+
+  let dom = '';
+  chrome.stdout.on('data', chunk => { dom += chunk; });
+  await once(chrome, 'exit');
+
+  const verdict = /data-probe="([^"]*)"/.exec(dom)?.[1];
+  if (!verdict) {
+    throw new Error('The probe reported nothing. Chrome may be missing; set CHROME_PATH.');
+  }
+  if (verdict !== 'OK') {
+    throw new Error(`Weather panel DOM probe failed: ${verdict}`);
+  }
+  console.log('Weather panel DOM probe passed.');
+} finally {
+  chrome?.kill('SIGKILL');
+  server.kill('SIGKILL');
+}
+```
+
+- [ ] **Step 3: Register the command and ignore the profile**
+
+In `package.json`, add the script. Do **not** add it to `check`:
+
+```json
+"check:dom": "node scripts/check-weather-dom.mjs",
+```
+
+Append to `.gitignore`:
+
+```
+hyeto-probe-profile/
+```
+
+- [ ] **Step 4: Run the probe**
+
+Run: `npm run check:dom`
+
+Expected: `Weather panel DOM probe passed.`
+
+If it reports `FAIL` the message names each broken expectation, for example
+`FAIL ArrowDown did not wrap | Enter did not fill the input`. If it reports that
+the probe said nothing, Chrome is not at the default path — set `CHROME_PATH`.
+
+To confirm the probe can actually fail rather than passing vacuously, temporarily
+change `MINIMUM_QUERY_LENGTH` in `src/weather-panel.js` to `1`, run it again, and
+check it reports `FAIL single character queried the api`. Restore the value
+afterwards.
+
+- [ ] **Step 5: Confirm the portable pipeline is unchanged**
+
+Run: `npm run check`
+
+Expected: the same five stages as before, with no browser involved. `check:dom`
+must not appear in its output.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add probe/weather-panel.html scripts/check-weather-dom.mjs package.json .gitignore
+git commit -m "test: add opt-in DOM probe for the weather panel
+
+Covers what the pure-function tests cannot: that typing renders the result
+list, that arrows move aria-activedescendant and wrap, that Enter commits and
+Escape closes, that a superseded search is aborted, and that a failed search
+leaves no stale list.
+
+--dump-dom never fires on the app itself because the scene's rAF loop keeps
+the page from going idle. A probe page mounting only the panel has no such
+loop, so it settles and can be dumped.
+
+Kept out of npm run check on purpose: it needs Chrome, and the pipeline has to
+stay runnable on a machine without a browser."
+```
+
+---
+
+### Task 7: Wire the panel into the scene
 
 **Files:**
 - Modify: `src/main.js` — imports near line 5, and a call inside `initRainfallEditor()` at line 6010
@@ -1366,7 +1843,7 @@ discarded rather than breaking boot."
 
 ---
 
-### Task 7: Documentation and spec reconciliation
+### Task 8: Documentation and spec reconciliation
 
 **Files:**
 - Modify: `THIRD_PARTY_NOTICES.md`
@@ -1430,10 +1907,15 @@ code; the table now lists the 'shape' code the implementation uses."
 
 | Layer | How it is verified |
 |---|---|
-| Hourly reduction, error mapping, date rollover, wettest-day scan | `scripts/check-weather-api.mjs`, in `npm run check`, no network needed |
+| Hourly reduction, error mapping, date rollover, wettest-day scan | `scripts/check-weather-api.mjs`, in `npm run check`, no network or browser |
+| Panel decision logic: error-key mapping, city labelling, index wrapping, status composition, query gate | `scripts/check-weather-panel.mjs`, in `npm run check`, no browser |
+| Panel DOM behaviour: list rendering, ARIA state, arrow/Enter/Escape handling, abort on supersede, failure leaves no stale list | `scripts/check-weather-dom.mjs` via `npm run check:dom` — opt-in, needs Chrome |
 | Locale parity for the 17 new keys | existing `check-project.mjs` gate |
 | Production safeguards, notices, bundle contents | existing `check-project.mjs` and `check-dist.mjs` |
-| Panel interaction, startup timing, visual layout | manual, in a real browser — there is no DOM test environment |
+| Visual layout, spacing, colour, failure-dot placement, how the scene's rebuild looks on swap | manual, in a real browser — no automation covers appearance |
+
+`npm run check` stays browser-free and portable: `check:project`, `check:weather`,
+`check:panel`, `build`, `check:dist`. `check:dom` is run on demand.
 
 ## Risks Carried Forward From the Spec
 
