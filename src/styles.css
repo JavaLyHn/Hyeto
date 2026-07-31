@@ -1310,3 +1310,18 @@ input {
   opacity: 0.45;
   cursor: default;
 }
+
+.rainfall-editor-toggle[data-weather-failed]::after {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff8080;
+  content: '';
+}
+
+.rainfall-editor-toggle {
+  position: relative;
+}

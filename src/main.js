@@ -4,6 +4,8 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as weatherApi from './weather-api.js';
+import { createWeatherPanel } from './weather-panel.js';
 
 function isXEmbeddedLaunch() {
   const userAgent = navigator.userAgent || '';
@@ -264,6 +266,29 @@ let axisMax = 12.8;
 let peakWaterfallRanges = [];
 let rainCeilingValue = axisMax;
 let rainCeilingY = 0;
+
+// Only the city is remembered. The curve itself is never persisted, so every
+// reload still starts from the built-in data. Deliberately not part of the
+// STORAGE object further down: that one is scoped inside the dev-only tuning
+// console initialiser.
+const WEATHER_CITY_STORAGE_KEY = 'rf-weather-city';
+
+function readStoredWeatherCity() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WEATHER_CITY_STORAGE_KEY) || 'null');
+    if (!raw || typeof raw.name !== 'string') return null;
+    if (!Number.isFinite(raw.latitude) || !Number.isFinite(raw.longitude)) return null;
+    return {
+      name: raw.name,
+      admin1: typeof raw.admin1 === 'string' ? raw.admin1 : '',
+      country: typeof raw.country === 'string' ? raw.country : '',
+      latitude: raw.latitude,
+      longitude: raw.longitude
+    };
+  } catch {
+    return null;
+  }
+}
 
 const BASE_AXIS_MAX = 12.8;
 const VISUAL_RAINFALL_REFERENCE = 10;
@@ -6057,6 +6082,50 @@ function initRainfallEditor() {
   const closeButton = rainfallEditor.querySelector('#rainfall-editor-close');
   const restoreButton = rainfallEditor.querySelector('#rainfall-restore');
   const applyButton = rainfallEditor.querySelector('#rainfall-apply');
+
+  const weatherMount = document.querySelector('#weather-panel');
+  let weatherPanel = null;
+  if (weatherMount) {
+    weatherPanel = createWeatherPanel({
+      mount: weatherMount,
+      api: weatherApi,
+      i18n,
+      onApply: values => {
+        applyRainfallData(values);
+        syncInputs(activeRainfall, false);
+      },
+      setStatus: message => { rainfallEditorStatus.textContent = message; },
+      setError: message => {
+        rainfallEditorErrors.textContent = message;
+        rainfallEditorErrors.hidden = !message;
+        rainfallEditorToggle?.toggleAttribute('data-weather-failed', Boolean(message));
+      }
+    });
+
+    weatherMount.addEventListener('weather-city-selected', event => {
+      try {
+        localStorage.setItem(WEATHER_CITY_STORAGE_KEY, JSON.stringify(event.detail));
+      } catch {
+        // Storage being unavailable must not break loading weather.
+      }
+    });
+
+    const storedCity = readStoredWeatherCity();
+    if (storedCity) {
+      weatherPanel.setSelectedCity(storedCity);
+      // Fire and forget: the scene is already rendering the default curve, and
+      // this must never delay boot. A peak of 0 leaves the default curve alone
+      // rather than opening on an empty scene.
+      weatherPanel.loadToday(storedCity).then(applied => {
+        if (applied && rainfallMax === 0) {
+          applyRainfallData(defaultRainfall);
+          syncInputs(activeRainfall, false);
+          rainfallEditorStatus.textContent = i18n('weatherNoRainDefault');
+        }
+      });
+    }
+  }
+
   const inputs = [];
   const chartPoints = [];
   const SVG_NS = 'http://www.w3.org/2000/svg';
