@@ -31,6 +31,18 @@ export function nextActiveIndex(current, step, length) {
   return (current + step + length) % length;
 }
 
+// A superseded request must not run its own completion side effects (status
+// text, re-enabling controls) — only the invocation that is still the most
+// recently issued one may. Deliberately independent of AbortSignal state: a
+// request's own controller reports itself as aborted the instant it is
+// cancelled, which is indistinguishable from "aborted because a newer one
+// replaced it" and "aborted for some unrelated reason" without this check.
+// Kept pure and exported so the comparison itself is assertable without a
+// DOM or a real AbortController.
+export function isLatestRequest(token, latestToken) {
+  return token === latestToken;
+}
+
 // Kept pure and exported so the status line's rules are assertable: a dry day
 // must announce itself, and dropped hours must be disclosed rather than being
 // silently zeroed and looking like real weather.
@@ -47,7 +59,14 @@ export function composeStatus(i18n, city, meta) {
 
 export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setError }) {
   let searchTimer = 0;
+  // `pending` and `activeLoad` are deliberately separate: the city search and
+  // the precipitation load are independent request lifecycles that happen to
+  // share this panel. Dismissing the suggestion list must not cancel an
+  // in-flight load, and starting a load must not cancel a city search — a
+  // single shared controller previously conflated the two, so cancelling
+  // either one could abort the other and leave its controls stuck disabled.
   let pending = null;
+  let activeLoad = null;
   let results = [];
   let activeIndex = -1;
   let selectedCity = null;
@@ -100,9 +119,13 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   const yesterday = new Date(Date.now() - 86_400_000);
   dateInput.max = yesterday.toISOString().slice(0, 10);
 
+  // Distinct from 'weatherErrorNotFound': that key means a search ran and
+  // matched nothing. Here no search has necessarily happened at all — a
+  // shortcut or the date field was used before any city was chosen — so it
+  // must not be misread as a failed search.
   function requireCity() {
     if (selectedCity) return selectedCity;
-    setError(i18n('weatherErrorNotFound'));
+    setError(i18n('weatherErrorNoCity'));
     return null;
   }
 
@@ -117,21 +140,22 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   }
 
   async function run(task) {
-    pending?.abort();
+    activeLoad?.abort();
     const controller = new AbortController();
-    pending = controller;
+    activeLoad = controller;
     setError('');
     setStatus(i18n('weatherLoading'));
     busy(true);
     try {
-      return await task(controller.signal);
+      const result = await task(controller.signal);
+      return isLatestRequest(controller, activeLoad) ? result : null;
     } catch (error) {
-      if (controller.signal.aborted) return null;
+      if (!isLatestRequest(controller, activeLoad)) return null;
       setStatus('');
       reportError(error);
       return null;
     } finally {
-      if (!controller.signal.aborted) busy(false);
+      if (isLatestRequest(controller, activeLoad)) busy(false);
     }
   }
 
@@ -317,6 +341,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     destroy() {
       window.clearTimeout(searchTimer);
       pending?.abort();
+      activeLoad?.abort();
       mount.replaceChildren();
     }
   };

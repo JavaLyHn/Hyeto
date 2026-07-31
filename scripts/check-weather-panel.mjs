@@ -6,7 +6,8 @@ import {
   describeCity,
   errorKeyFor,
   nextActiveIndex,
-  composeStatus
+  composeStatus,
+  isLatestRequest
 } from '../src/weather-panel.js';
 
 // Duplicate city names are distinguished by admin1.
@@ -76,5 +77,15 @@ assert.equal(
   composeStatus(fakeI18n, city, { date: '2026-07-31', peak: 0, gaps: 2 }),
   'loaded Shanghai 2026-07-31 0.0 · gaps 2 · no rain'
 );
+
+// A completion belongs only to the request that is still the current one:
+// an older, superseded request must not mistake itself for current just
+// because the two happen to compare equal in some other way.
+assert.equal(isLatestRequest('a', 'a'), true);
+assert.equal(isLatestRequest('a', 'b'), false);
+const staleToken = {};
+const freshToken = {};
+assert.equal(isLatestRequest(staleToken, staleToken), true);
+assert.equal(isLatestRequest(staleToken, freshToken), false);
 
 console.log('Weather panel checks passed.');
