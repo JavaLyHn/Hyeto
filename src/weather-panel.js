@@ -69,7 +69,12 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     setError(i18n(errorKeyFor(error)));
   }
 
+  // Closing the list also abandons any in-flight search: otherwise a request the
+  // user has already dismissed (or acted past) can resolve later and repaint a
+  // dropdown they no longer expect to see.
   function closeResults() {
+    pending?.abort();
+    pending = null;
     results = [];
     activeIndex = -1;
     resultList.replaceChildren();
@@ -147,6 +152,17 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   });
 
   cityInput.addEventListener('keydown', event => {
+    // Enter must never reach the surrounding <form>: the city input is one field
+    // among the rainfall editor's draft controls, and native submit-on-Enter would
+    // silently apply unrelated staged data. This holds whether or not the
+    // suggestion list is open, so the check runs before the hidden-list guard below.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (!resultList.hidden && results[activeIndex]) {
+        selectCity(results[activeIndex]);
+      }
+      return;
+    }
     if (resultList.hidden) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
@@ -155,13 +171,12 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
       paintActive();
       return;
     }
-    if (event.key === 'Enter' && results[activeIndex]) {
-      event.preventDefault();
-      selectCity(results[activeIndex]);
-      return;
-    }
     if (event.key === 'Escape') {
+      // Stop here so the first Escape only dismisses the popup; only a second
+      // Escape (with the list already closed, hitting the guard above) reaches
+      // the ancestor listener that closes the whole editor dialog.
       event.preventDefault();
+      event.stopPropagation();
       closeResults();
     }
   });
