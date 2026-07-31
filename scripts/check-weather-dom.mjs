@@ -39,11 +39,22 @@ function run(command, args) {
   // registered in addition to this drain-safe default).
   child.stdout.on('data', () => {});
   child.stderr.on('data', () => {});
+  // A spawn failure (missing binary, bad permissions, wrong CHROME_PATH...)
+  // emits an 'error' event; with no listener, Node treats that as unhandled
+  // and crashes the whole process immediately — before the try/finally
+  // below ever runs — leaving the sibling child orphaned and printing a raw
+  // ENOENT stack instead of this script's own message. Record it instead of
+  // throwing, so the caller can fail in its own words and cleanup still runs.
+  child.spawnError = null;
+  child.on('error', error => { child.spawnError = error; });
   return child;
 }
 
-async function waitForServer(url, attempts = SERVER_ATTEMPTS) {
+async function waitForServer(child, url, attempts = SERVER_ATTEMPTS) {
   for (let index = 0; index < attempts; index += 1) {
+    if (child.spawnError) {
+      throw new Error(`The dev server failed to start: ${child.spawnError.message}`);
+    }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS) });
       const ok = response.ok;
@@ -77,23 +88,24 @@ async function waitForExit(child, boundMs, pollMs = POLL_MS) {
   return true;
 }
 
-// Wait until either the child exits on its own, or its accumulated stdout
+// Wait until either the child exits on its own, its accumulated stdout
 // contains a complete data-probe attribute and has held still for
 // DOM_SETTLE_MS (so a value mid-write is never mistaken for the final one),
-// or `boundMs` elapses with neither having happened. Never blocks past
-// `boundMs` regardless of which of those three is true.
+// `boundMs` elapses with none of that having happened, or the child never
+// spawned at all. Never blocks past `boundMs` regardless of which is true.
 async function waitForDumpOrExit(child, getDom, boundMs) {
   const deadline = Date.now() + boundMs;
   let verdictSeenAt = null;
   while (true) {
-    if (child.exitCode !== null || child.signalCode !== null) return { exited: true, settled: true };
+    if (child.spawnError) return { exited: true, settled: true, spawnError: child.spawnError };
+    if (child.exitCode !== null || child.signalCode !== null) return { exited: true, settled: true, spawnError: null };
     if (/data-probe="[^"]*"/.test(getDom())) {
       verdictSeenAt ??= Date.now();
-      if (Date.now() - verdictSeenAt >= DOM_SETTLE_MS) return { exited: false, settled: true };
+      if (Date.now() - verdictSeenAt >= DOM_SETTLE_MS) return { exited: false, settled: true, spawnError: null };
     } else {
       verdictSeenAt = null;
     }
-    if (Date.now() >= deadline) return { exited: false, settled: false };
+    if (Date.now() >= deadline) return { exited: false, settled: false, spawnError: null };
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
   }
 }
@@ -101,7 +113,7 @@ async function waitForDumpOrExit(child, getDom, boundMs) {
 const server = run(VITE_BIN, ['--port', String(PORT), '--strictPort']);
 let chrome;
 try {
-  await waitForServer(PROBE_URL);
+  await waitForServer(server, PROBE_URL);
 
   // --headless=old is required: the new headless mode never returns from
   // --dump-dom with --virtual-time-budget on this setup.
@@ -118,7 +130,12 @@ try {
   let dom = '';
   chrome.stdout.on('data', chunk => { dom += chunk; });
 
-  const { exited, settled } = await waitForDumpOrExit(chrome, () => dom, CHROME_DUMP_BOUND_MS);
+  const { exited, settled, spawnError } = await waitForDumpOrExit(chrome, () => dom, CHROME_DUMP_BOUND_MS);
+  if (spawnError) {
+    throw new Error(
+      `Chrome failed to start (${spawnError.message}). Chrome may be missing; set CHROME_PATH.`
+    );
+  }
   if (!exited) {
     // Either the dump is visible and settled (the common case — Chrome's own
     // shutdown is not worth waiting for) or nothing appeared within the

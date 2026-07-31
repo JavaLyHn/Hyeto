@@ -75,7 +75,17 @@
     // The panel debounces for 300ms; wait past it plus the fake api's tick.
     await new Promise(resolve => setTimeout(resolve, 420));
   };
-  const press = key => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  // Returns the event itself (not dispatchEvent's boolean) so callers can
+  // inspect event.defaultPrevented: a script-dispatched (untrusted) keydown
+  // never triggers native implicit-submit-on-Enter in headless Chrome
+  // regardless of whether a handler called preventDefault(), so formSubmits
+  // alone cannot tell a guarded Enter from an unguarded one. Cancellation
+  // itself, unlike submission, is observable with untrusted dispatch.
+  const press = key => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    return event;
+  };
 
   try {
     // A single character must not reach the api.
@@ -158,11 +168,19 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 60));
     check('list unexpectedly open on 1 char', results.hidden === true);
-    press('Enter');
+    // formSubmits === 0 cannot carry this coverage on its own: a
+    // script-dispatched keydown never triggers native implicit-submit in
+    // headless Chrome even when nothing calls preventDefault(), so that
+    // check alone would pass whether or not the panel guards Enter. Assert
+    // the mechanism the panel actually controls — cancellation — via
+    // event.defaultPrevented, which untrusted dispatch does still report.
+    let enterEvent = press('Enter');
+    check('Enter did not prevent default with the list closed', enterEvent.defaultPrevented === true);
     check('Enter submitted the form with the list closed', formSubmits === 0);
 
     await type('杭州');                       // list open
-    press('Enter');
+    enterEvent = press('Enter');
+    check('Enter did not prevent default with the list open', enterEvent.defaultPrevented === true);
     check('Enter submitted the form with the list open', formSubmits === 0);
     check('Enter did not commit the option', input.value === '杭州 / 浙江 / 中国');
 
