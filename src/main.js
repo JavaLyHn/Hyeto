@@ -6085,21 +6085,32 @@ function initRainfallEditor() {
 
   const weatherMount = document.querySelector('#weather-panel');
   let weatherPanel = null;
+  // Retained so a failure explanation can survive `syncInputs` clearing
+  // `rainfallEditorErrors` when the editor is (re)opened -- see
+  // `setEditorOpen` below. Cleared in lockstep with the toggle's red-dot
+  // marker, so both disappear together once a later load succeeds.
+  let lastWeatherErrorMessage = '';
   if (weatherMount) {
+    const showWeatherFailure = message => {
+      lastWeatherErrorMessage = message;
+      rainfallEditorErrors.textContent = message;
+      rainfallEditorErrors.hidden = !message;
+      rainfallEditorToggle?.toggleAttribute('data-weather-failed', Boolean(message));
+    };
+
     weatherPanel = createWeatherPanel({
       mount: weatherMount,
       api: weatherApi,
       i18n,
       onApply: values => {
         applyRainfallData(values);
-        syncInputs(activeRainfall, false);
+        // Loaded data becomes the new draft: the draggable chart is the
+        // primary control, and it must show what was just applied rather
+        // than the previous curve.
+        syncInputs(activeRainfall);
       },
       setStatus: message => { rainfallEditorStatus.textContent = message; },
-      setError: message => {
-        rainfallEditorErrors.textContent = message;
-        rainfallEditorErrors.hidden = !message;
-        rainfallEditorToggle?.toggleAttribute('data-weather-failed', Boolean(message));
-      }
+      setError: showWeatherFailure
     });
 
     weatherMount.addEventListener('weather-city-selected', event => {
@@ -6119,9 +6130,17 @@ function initRainfallEditor() {
       weatherPanel.loadToday(storedCity).then(applied => {
         if (applied && rainfallMax === 0) {
           applyRainfallData(defaultRainfall);
-          syncInputs(activeRainfall, false);
+          syncInputs(activeRainfall);
           rainfallEditorStatus.textContent = i18n('weatherNoRainDefault');
         }
+      }).catch(error => {
+        // Network/geocoding failures are already reported through setError
+        // above, inside the panel's own try/catch. This guards what that
+        // catch does not cover: onApply (applyRainfallData) runs after the
+        // panel's request has already resolved successfully, so a rejection
+        // from it -- or from the peak-0 branch just above -- would otherwise
+        // be a silent unhandled rejection at boot, with no red dot at all.
+        showWeatherFailure(error instanceof Error ? error.message : i18n('applyFailed'));
       });
     }
   }
@@ -6403,6 +6422,15 @@ function initRainfallEditor() {
       previouslyFocused = document.activeElement;
       rainfallEditor.removeAttribute('inert');
       syncInputs(activeRainfall);
+      // syncInputs() just cleared rainfallEditorErrors unconditionally. An
+      // ordinary validation error should stay cleared on reopen -- but an
+      // unresolved weather failure (the toggle's red dot is still asking to
+      // be read) must survive being read, so re-assert it synchronously,
+      // before this ever paints.
+      if (lastWeatherErrorMessage) {
+        rainfallEditorErrors.textContent = lastWeatherErrorMessage;
+        rainfallEditorErrors.hidden = false;
+      }
       rainfallEditorStatus.textContent = i18n('editorReady');
       requestAnimationFrame(() => closeButton?.focus());
     } else {
