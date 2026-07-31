@@ -1,6 +1,14 @@
 // Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
 import assert from 'node:assert/strict';
-import { PRECIPITATION_POINT_COUNT, WeatherError, reduceHourlySeries } from '../src/weather-api.js';
+import {
+  PRECIPITATION_POINT_COUNT,
+  WeatherError,
+  reduceHourlySeries,
+  geocodeCity,
+  fetchTodayPrecipitation,
+  fetchArchivePrecipitation,
+  findWettestRecentDay
+} from '../src/weather-api.js';
 
 function hourly(precipitation, startDate = '2026-07-18') {
   return {
@@ -60,5 +68,141 @@ expectCode('shape', () =>
 
 // A malformed payload raises 'shape'.
 expectCode('shape', () => reduceHourlySeries(null, { source: 'forecast', timezone: 'UTC' }));
+
+function fakeFetch({ status = 200, body = {} } = {}) {
+  const calls = [];
+  const impl = async (url) => {
+    calls.push(String(url));
+    return { ok: status >= 200 && status < 300, status, json: async () => body };
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+async function expectAsyncCode(code, run) {
+  try {
+    await run();
+  } catch (error) {
+    assert.ok(error instanceof WeatherError, `expected a WeatherError, got ${error?.name}`);
+    assert.equal(error.code, code);
+    return;
+  }
+  assert.fail(`expected a WeatherError with code "${code}"`);
+}
+
+// Geocoding maps results and preserves admin1 for disambiguation.
+{
+  const fetchImpl = fakeFetch({
+    body: {
+      results: [
+        { id: 1, name: '杭州', admin1: '浙江', country: '中国', latitude: 30.29, longitude: 120.16 },
+        { id: 2, name: '杭州', admin1: '四川', country: '中国', latitude: 30.06, longitude: 102.19 }
+      ]
+    }
+  });
+  const results = await geocodeCity('杭州', { language: 'zh', fetch: fetchImpl });
+  assert.equal(results.length, 2);
+  assert.equal(results[0].admin1, '浙江');
+  assert.equal(results[1].admin1, '四川');
+  assert.ok(fetchImpl.calls[0].startsWith('https://geocoding-api.open-meteo.com/v1/search?'));
+  assert.ok(fetchImpl.calls[0].includes('language=zh'));
+}
+
+// A query shorter than two characters never reaches the network.
+{
+  const fetchImpl = fakeFetch();
+  assert.deepEqual(await geocodeCity('杭', { fetch: fetchImpl }), []);
+  assert.equal(fetchImpl.calls.length, 0);
+}
+
+// No geocoding results raises 'notFound'.
+await expectAsyncCode('notFound', () =>
+  geocodeCity('zzzzzz', { fetch: fakeFetch({ body: { results: [] } }) }));
+
+// HTTP 429 raises 'rateLimit'.
+await expectAsyncCode('rateLimit', () =>
+  geocodeCity('shanghai', { fetch: fakeFetch({ status: 429 }) }));
+
+// A rejecting fetch raises 'network'.
+await expectAsyncCode('network', () =>
+  geocodeCity('shanghai', { fetch: async () => { throw new TypeError('blocked'); } }));
+
+// Today's reading uses the forecast host and asks for two days.
+{
+  const values = Array.from({ length: 48 }, () => 0.5);
+  const fetchImpl = fakeFetch({
+    body: { timezone: 'Asia/Shanghai', hourly: hourly(values, '2026-07-31') }
+  });
+  const result = await fetchTodayPrecipitation({ latitude: 31.23, longitude: 121.47, fetch: fetchImpl });
+  assert.equal(result.meta.source, 'forecast');
+  assert.equal(result.meta.timezone, 'Asia/Shanghai');
+  assert.equal(result.values.length, 25);
+  assert.ok(fetchImpl.calls[0].startsWith('https://api.open-meteo.com/v1/forecast?'));
+  assert.ok(fetchImpl.calls[0].includes('forecast_days=2'));
+  assert.ok(fetchImpl.calls[0].includes('timezone=auto'));
+}
+
+// A historical day uses the archive host and requests D through D+1.
+{
+  const values = Array.from({ length: 48 }, () => 1);
+  const fetchImpl = fakeFetch({
+    body: { timezone: 'Asia/Shanghai', hourly: hourly(values, '2026-07-18') }
+  });
+  const result = await fetchArchivePrecipitation({
+    latitude: 31.23, longitude: 121.47, date: '2026-07-18', fetch: fetchImpl
+  });
+  assert.equal(result.meta.source, 'archive');
+  assert.ok(fetchImpl.calls[0].startsWith('https://archive-api.open-meteo.com/v1/archive?'));
+  assert.ok(fetchImpl.calls[0].includes('start_date=2026-07-18'));
+  assert.ok(fetchImpl.calls[0].includes('end_date=2026-07-19'));
+}
+
+// Month and year rollover in the end_date.
+{
+  const values = Array.from({ length: 48 }, () => 1);
+  const fetchImpl = fakeFetch({ body: { timezone: 'UTC', hourly: hourly(values, '2025-12-31') } });
+  await fetchArchivePrecipitation({ latitude: 1, longitude: 1, date: '2025-12-31', fetch: fetchImpl });
+  assert.ok(fetchImpl.calls[0].includes('end_date=2026-01-01'));
+}
+
+// A malformed date raises 'range' without touching the network.
+{
+  const fetchImpl = fakeFetch();
+  await expectAsyncCode('range', () =>
+    fetchArchivePrecipitation({ latitude: 1, longitude: 1, date: '18/07/2026', fetch: fetchImpl }));
+  assert.equal(fetchImpl.calls.length, 0);
+}
+
+// The wettest-day scan skips incomplete days and returns the highest peak.
+{
+  const times = [];
+  const amounts = [];
+  const push = (date, hours) => {
+    hours.forEach((value, index) => {
+      times.push(`${date}T${String(index).padStart(2, '0')}:00`);
+      amounts.push(value);
+    });
+  };
+  push('2026-07-16', Array.from({ length: 24 }, () => 0.2));
+  push('2026-07-17', Array.from({ length: 24 }, (_, index) => (index === 5 ? null : 9)));
+  push('2026-07-18', Array.from({ length: 24 }, (_, index) => (index === 9 ? 11 : 1)));
+  push('2026-07-19', Array.from({ length: 6 }, () => 30));
+
+  const fetchImpl = fakeFetch({ body: { timezone: 'Asia/Shanghai', hourly: { time: times, precipitation: amounts } } });
+  const best = await findWettestRecentDay({ latitude: 31.23, longitude: 121.47, days: 60, fetch: fetchImpl });
+  assert.equal(best.date, '2026-07-18');
+  assert.equal(best.peak, 11);
+  assert.equal(best.total, 34);
+  assert.ok(fetchImpl.calls[0].includes('past_days=60'));
+}
+
+// A dry window raises 'empty'.
+{
+  const times = Array.from({ length: 24 }, (_, index) => `2026-07-16T${String(index).padStart(2, '0')}:00`);
+  const fetchImpl = fakeFetch({
+    body: { timezone: 'UTC', hourly: { time: times, precipitation: times.map(() => 0) } }
+  });
+  await expectAsyncCode('empty', () => findWettestRecentDay({ latitude: 1, longitude: 1, fetch: fetchImpl }));
+}
 
 console.log('Weather API checks passed.');
