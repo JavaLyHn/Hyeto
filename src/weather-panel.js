@@ -31,6 +31,20 @@ export function nextActiveIndex(current, step, length) {
   return (current + step + length) % length;
 }
 
+// Kept pure and exported so the status line's rules are assertable: a dry day
+// must announce itself, and dropped hours must be disclosed rather than being
+// silently zeroed and looking like real weather.
+export function composeStatus(i18n, city, meta) {
+  const parts = [i18n('weatherLoaded', {
+    city: city.name,
+    date: meta.date,
+    peak: meta.peak.toFixed(1)
+  })];
+  if (meta.gaps > 0) parts.push(i18n('weatherGaps', { count: meta.gaps }));
+  if (meta.peak === 0) parts.push(i18n('weatherNoRain'));
+  return parts.join(' · ');
+}
+
 export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setError }) {
   let searchTimer = 0;
   let pending = null;
@@ -54,16 +68,127 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
       />
     </label>
     <ul id="weather-panel-results" class="weather-panel__results" role="listbox" hidden></ul>
+    <label class="weather-panel__field">
+      <span data-weather="dateLabel"></span>
+      <input type="date" class="weather-panel__date" data-weather="date" />
+    </label>
+    <div class="weather-panel__actions">
+      <button type="button" class="weather-panel__button" data-weather="today"></button>
+      <button type="button" class="weather-panel__button" data-weather="wettest"></button>
+    </div>
   `;
 
   const title = mount.querySelector('[data-weather="title"]');
   const cityLabel = mount.querySelector('[data-weather="cityLabel"]');
   const cityInput = mount.querySelector('[data-weather="city"]');
   const resultList = mount.querySelector('#weather-panel-results');
+  const dateLabel = mount.querySelector('[data-weather="dateLabel"]');
+  const dateInput = mount.querySelector('[data-weather="date"]');
+  const todayButton = mount.querySelector('[data-weather="today"]');
+  const wettestButton = mount.querySelector('[data-weather="wettest"]');
 
   title.textContent = i18n('weatherTitle');
   cityLabel.textContent = i18n('weatherCityLabel');
   cityInput.placeholder = i18n('weatherCityPlaceholder');
+  dateLabel.textContent = i18n('weatherDateLabel');
+  todayButton.textContent = i18n('weatherToday');
+  wettestButton.textContent = i18n('weatherWettest');
+
+  // The archive holds data only through yesterday. This max is an input
+  // affordance, not the authoritative check — that is the 'empty' error — so a
+  // one-day skew between the browser's zone and the city's is harmless.
+  const yesterday = new Date(Date.now() - 86_400_000);
+  dateInput.max = yesterday.toISOString().slice(0, 10);
+
+  function requireCity() {
+    if (selectedCity) return selectedCity;
+    setError(i18n('weatherErrorNotFound'));
+    return null;
+  }
+
+  function busy(isBusy) {
+    todayButton.disabled = isBusy;
+    wettestButton.disabled = isBusy;
+    dateInput.disabled = isBusy;
+  }
+
+  function announce(city, result) {
+    setStatus(composeStatus(i18n, city, result.meta));
+  }
+
+  async function run(task) {
+    pending?.abort();
+    const controller = new AbortController();
+    pending = controller;
+    setError('');
+    setStatus(i18n('weatherLoading'));
+    busy(true);
+    try {
+      return await task(controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) return null;
+      setStatus('');
+      reportError(error);
+      return null;
+    } finally {
+      if (!controller.signal.aborted) busy(false);
+    }
+  }
+
+  async function loadToday(city) {
+    const target = city ?? requireCity();
+    if (!target) return false;
+    const result = await run(signal => api.fetchTodayPrecipitation({
+      latitude: target.latitude,
+      longitude: target.longitude,
+      signal
+    }));
+    if (!result) return false;
+    onApply(result.values, result.meta);
+    announce(target, result);
+    return true;
+  }
+
+  async function loadDate(date) {
+    const target = requireCity();
+    if (!target || !date) return false;
+    const result = await run(signal => api.fetchArchivePrecipitation({
+      latitude: target.latitude,
+      longitude: target.longitude,
+      date,
+      signal
+    }));
+    if (!result) return false;
+    onApply(result.values, result.meta);
+    announce(target, result);
+    return true;
+  }
+
+  todayButton.addEventListener('click', () => {
+    dateInput.value = '';
+    loadToday();
+  });
+
+  dateInput.addEventListener('change', () => {
+    if (dateInput.value) loadDate(dateInput.value);
+  });
+
+  wettestButton.addEventListener('click', async () => {
+    const target = requireCity();
+    if (!target) return;
+    const best = await run(signal => api.findWettestRecentDay({
+      latitude: target.latitude,
+      longitude: target.longitude,
+      signal
+    }));
+    if (!best) return;
+    dateInput.value = best.date;
+    await loadDate(best.date);
+  });
+
+  mount.addEventListener('weather-city-selected', () => {
+    dateInput.value = '';
+  });
 
   function reportError(error) {
     setError(i18n(errorKeyFor(error)));
@@ -182,6 +307,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
   });
 
   return {
+    loadToday,
     getSelectedCity: () => selectedCity,
     setSelectedCity: city => {
       selectedCity = city;

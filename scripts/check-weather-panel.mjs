@@ -5,7 +5,8 @@ import {
   MINIMUM_QUERY_LENGTH,
   describeCity,
   errorKeyFor,
-  nextActiveIndex
+  nextActiveIndex,
+  composeStatus
 } from '../src/weather-panel.js';
 
 // Duplicate city names are distinguished by admin1.
@@ -42,5 +43,38 @@ assert.equal(nextActiveIndex(-1, 1, 3), 0);
 
 // The search gate is two characters, so a single Chinese character never queries.
 assert.equal(MINIMUM_QUERY_LENGTH, 2);
+
+// The i18n helper is injected, so the test supplies a predictable stand-in.
+const fakeI18n = (key, vars = {}) => {
+  if (key === 'weatherLoaded') return `loaded ${vars.city} ${vars.date} ${vars.peak}`;
+  if (key === 'weatherGaps') return `gaps ${vars.count}`;
+  if (key === 'weatherNoRain') return 'no rain';
+  return key;
+};
+const city = { name: 'Shanghai', admin1: '', country: 'China' };
+
+// A normal load reports city, date and peak to one decimal place.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-18', peak: 11, gaps: 0 }),
+  'loaded Shanghai 2026-07-18 11.0'
+);
+
+// Missing hours are disclosed rather than silently zeroed out of sight.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-18', peak: 4.25, gaps: 3 }),
+  'loaded Shanghai 2026-07-18 4.3 · gaps 3'
+);
+
+// A dry day says so explicitly, so it cannot be mistaken for a failed load.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-31', peak: 0, gaps: 0 }),
+  'loaded Shanghai 2026-07-31 0.0 · no rain'
+);
+
+// Both notes can appear together.
+assert.equal(
+  composeStatus(fakeI18n, city, { date: '2026-07-31', peak: 0, gaps: 2 }),
+  'loaded Shanghai 2026-07-31 0.0 · gaps 2 · no rain'
+);
 
 console.log('Weather panel checks passed.');
