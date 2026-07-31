@@ -683,7 +683,7 @@ Keys must sit at exactly four spaces of indentation and nothing may be added aft
 
 Run: `npm run check:project`
 
-Expected: `Project checks passed (69 complete translation keys per locale).` The count rises from 52 by 17. If it reports differing keys, one block is missing an entry or an indentation is wrong.
+Expected: `Project checks passed (70 complete translation keys per locale).` The count rises from 52 by 18. If it reports differing keys, one block is missing an entry or an indentation is wrong.
 
 - [ ] **Step 5: Commit**
 
@@ -694,7 +694,7 @@ git commit -m "feat: allow Open-Meteo hosts and add weather copy
 connect-src gains the forecast, archive and geocoding hosts; without them
 the browser blocks every request before it leaves the page.
 
-Seventeen keys land in both locale blocks so check-project.mjs covers them
+Eighteen keys land in both locale blocks so check-project.mjs covers them
 from the start rather than after the UI is built."
 ```
 
@@ -1887,7 +1887,7 @@ Also update the `WeatherError` code union in the architecture section to include
 
 Run: `npm run check`
 
-Expected: all stages pass, with 69 translation keys per locale.
+Expected: all stages pass, with 70 translation keys per locale.
 
 Then run `npm run dev` and confirm once more, in a real browser, that: the scene renders; sound still plays; the weather panel loads a live reading and a historical day; and a failed load leaves the curve untouched.
 
@@ -1910,7 +1910,7 @@ code; the table now lists the 'shape' code the implementation uses."
 | Hourly reduction, error mapping, date rollover, wettest-day scan | `scripts/check-weather-api.mjs`, in `npm run check`, no network or browser |
 | Panel decision logic: error-key mapping, city labelling, index wrapping, status composition, query gate | `scripts/check-weather-panel.mjs`, in `npm run check`, no browser |
 | Panel DOM behaviour: list rendering, ARIA state, arrow/Enter/Escape handling, abort on supersede, failure leaves no stale list | `scripts/check-weather-dom.mjs` via `npm run check:dom` — opt-in, needs Chrome |
-| Locale parity for the 17 new keys | existing `check-project.mjs` gate |
+| Locale parity for the 18 new keys | existing `check-project.mjs` gate |
 | Production safeguards, notices, bundle contents | existing `check-project.mjs` and `check-dist.mjs` |
 | Visual layout, spacing, colour, failure-dot placement, how the scene's rebuild looks on swap | manual, in a real browser — no automation covers appearance |
 
