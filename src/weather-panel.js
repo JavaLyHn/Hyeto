@@ -43,6 +43,18 @@ export function isLatestRequest(token, latestToken) {
   return token === latestToken;
 }
 
+// Open-Meteo's `language` parameter wants a bare ISO-639-1 subtag. The app's
+// own locale (`document.documentElement.lang`) is a BCP 47 tag such as
+// 'zh-CN', and passing that whole tag is not merely unrecognised — the API
+// still answers HTTP 200, just with no `results` key in the body at all, so
+// geocodeCity sees an empty array and reports 'notFound', as if the search
+// itself had matched nothing. 'en' is identical under both schemes, which is
+// why this was invisible in English. Kept pure and exported so the reduction
+// is assertable without a DOM.
+export function primaryLanguageSubtag(lang) {
+  return String(lang || 'en').split('-')[0];
+}
+
 // Kept pure and exported so the status line's rules are assertable: a dry day
 // must announce itself, and dropped hours must be disclosed rather than being
 // silently zeroed and looking like real weather.
@@ -197,6 +209,16 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     if (dateInput.value) loadDate(dateInput.value);
   });
 
+  // Enter must never reach the surrounding <form>: the date input is one field
+  // among the rainfall editor's draft controls, exactly like the city input
+  // above, and native submit-on-Enter would silently apply unrelated staged
+  // data. Unconditional preventDefault, then load only if a date is actually set.
+  dateInput.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (dateInput.value) loadDate(dateInput.value);
+  });
+
   wettestButton.addEventListener('click', async () => {
     const target = requireCity();
     if (!target) return;
@@ -206,8 +228,20 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
       signal
     }));
     if (!best) return;
-    dateInput.value = best.date;
-    await loadDate(best.date);
+    // The scan's own winner can be the current local day, which the archive
+    // host flatly rejects (HTTP 400, mapped by requestJson's generic
+    // !response.ok branch to a misleading 'network' error) rather than
+    // serving. Route that case through the forecast path instead, exactly
+    // like the "today, live" button does.
+    if (best.isToday) {
+      const loaded = await loadToday(target);
+      if (loaded) dateInput.value = '';
+      return;
+    }
+    // Only paint the date box once the load actually lands: a failed load
+    // must not leave it showing a date whose data was never applied.
+    const loaded = await loadDate(best.date);
+    if (loaded) dateInput.value = best.date;
   });
 
   mount.addEventListener('weather-city-selected', () => {
@@ -276,7 +310,7 @@ export function createWeatherPanel({ mount, api, i18n, onApply, setStatus, setEr
     setStatus(i18n('weatherSearching'));
     try {
       const cities = await api.geocodeCity(query, {
-        language: document.documentElement.lang || 'en',
+        language: primaryLanguageSubtag(document.documentElement.lang),
         signal: controller.signal
       });
       if (controller.signal.aborted) return;

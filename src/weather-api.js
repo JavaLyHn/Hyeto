@@ -57,7 +57,10 @@ const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const ARCHIVE_URL = 'https://archive-api.open-meteo.com/v1/archive';
 const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const REQUEST_TIMEOUT_MS = 10_000;
-const MINIMUM_QUERY_LENGTH = 2;
+// Exported so scripts/check-weather-panel.mjs can assert this stays in lockstep
+// with weather-panel.js's own copy: if the panel's ever drifted below this one,
+// geocodeCity would silently return [] for a query the panel thinks is long enough.
+export const MINIMUM_QUERY_LENGTH = 2;
 
 async function requestJson(url, { signal, fetch: fetchImpl = globalThis.fetch } = {}) {
   // A signal that is already aborted before the request starts must prevent the
@@ -181,6 +184,17 @@ export async function findWettestRecentDay({ latitude, longitude, days = 60, sig
     byDate.get(day).push(amounts[index]);
   });
 
+  // `forecast_days=1` appends exactly one day beyond the `days` days of
+  // history requested, and that appended day is always the current local
+  // one. The archive host cannot serve that day at all (see
+  // fetchArchivePrecipitation, which requests it as start_date=D,
+  // end_date=D+1 and gets HTTP 400 back) so a caller that goes on to load
+  // this date through the archive gets a network-shaped failure for a day
+  // that was never reachable in the first place. Read this off the
+  // payload's own last date rather than a real clock, matching this
+  // module's rule of never doing local-timezone date arithmetic.
+  const lastDate = [...byDate.keys()].pop();
+
   let best = null;
   for (const [date, hours] of byDate) {
     // Partial days would understate their own peak, so they are skipped rather
@@ -195,5 +209,5 @@ export async function findWettestRecentDay({ latitude, longitude, days = 60, sig
   if (!best || best.peak <= 0) {
     throw new WeatherError('empty', 'No rainfall was recorded in the recent window.');
   }
-  return best;
+  return { ...best, isToday: best.date === lastDate };
 }

@@ -1,13 +1,14 @@
 // Hyeto — Copyright © 2026 JavaLyHn. PolyForm Noncommercial 1.0.0.
 import assert from 'node:assert/strict';
-import { WeatherError } from '../src/weather-api.js';
+import { WeatherError, MINIMUM_QUERY_LENGTH as API_MINIMUM_QUERY_LENGTH } from '../src/weather-api.js';
 import {
   MINIMUM_QUERY_LENGTH,
   describeCity,
   errorKeyFor,
   nextActiveIndex,
   composeStatus,
-  isLatestRequest
+  isLatestRequest,
+  primaryLanguageSubtag
 } from '../src/weather-panel.js';
 
 // Duplicate city names are distinguished by admin1.
@@ -44,6 +45,29 @@ assert.equal(nextActiveIndex(-1, 1, 3), 0);
 
 // The search gate is two characters, so a single Chinese character never queries.
 assert.equal(MINIMUM_QUERY_LENGTH, 2);
+
+// The panel and the api module each define their own copy of this constant.
+// Nothing in the language enforces they agree; if the panel's copy ever
+// dropped below the api's, geocodeCity would silently return [] for a query
+// the panel believed was long enough to search.
+assert.equal(
+  MINIMUM_QUERY_LENGTH,
+  API_MINIMUM_QUERY_LENGTH,
+  "weather-panel.js's MINIMUM_QUERY_LENGTH must match weather-api.js's"
+);
+
+// Open-Meteo's `language` parameter wants a bare ISO-639-1 subtag; the app's
+// locale is a BCP 47 tag. A full tag such as 'zh-CN' is not rejected by the
+// API -- it is silently ignored, returning HTTP 200 with no results at all,
+// which is why this reduction has to happen before geocodeCity is ever
+// called, not be left to the API to sort out.
+assert.equal(primaryLanguageSubtag('zh-CN'), 'zh');
+assert.equal(primaryLanguageSubtag('zh'), 'zh');
+assert.equal(primaryLanguageSubtag('en'), 'en');
+assert.equal(primaryLanguageSubtag('en-US'), 'en');
+assert.equal(primaryLanguageSubtag(''), 'en');
+assert.equal(primaryLanguageSubtag(undefined), 'en');
+assert.equal(primaryLanguageSubtag('zh-Hans-CN'), 'zh');
 
 // The i18n helper is injected, so the test supplies a predictable stand-in.
 const fakeI18n = (key, vars = {}) => {

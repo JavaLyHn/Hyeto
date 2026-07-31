@@ -119,7 +119,12 @@ async function expectAbortError(promiseOrThunk) {
   assert.equal(results[0].admin1, '浙江');
   assert.equal(results[1].admin1, '四川');
   assert.ok(fetchImpl.calls[0].startsWith('https://geocoding-api.open-meteo.com/v1/search?'));
-  assert.ok(fetchImpl.calls[0].includes('language=zh'));
+  // Pinned to the exact parameter value, not a substring: 'language=zh-CN'
+  // also `includes('language=zh')`, which is exactly the bug this project
+  // shipped — a BCP 47 tag passed straight through to a parameter that wants
+  // a bare ISO-639-1 subtag, silently returning zero results.
+  assert.ok(/[?&]language=zh(?:&|$)/.test(fetchImpl.calls[0]),
+    `expected an exact language=zh parameter, got ${fetchImpl.calls[0]}`);
 }
 
 // A query shorter than two characters never reaches the network.
@@ -235,8 +240,15 @@ await expectAsyncCode('network', () =>
     });
   };
   push('2026-07-16', Array.from({ length: 24 }, () => 0.2));
-  push('2026-07-17', Array.from({ length: 24 }, (_, index) => (index === 5 ? null : 9)));
+  // This day's non-null hours must peak above the intended winner (11) so
+  // that deleting the null-skip guard below would actually change the
+  // result: at the previous value (9, below 11) removing the guard was a
+  // no-op and the assertion could not fail either way.
+  push('2026-07-17', Array.from({ length: 24 }, (_, index) => (index === 5 ? null : 15)));
   push('2026-07-18', Array.from({ length: 24 }, (_, index) => (index === 9 ? 11 : 1)));
+  // The scan's own last day — always the current local day in the real API —
+  // is deliberately shorter than 24 hours here, so it is excluded from
+  // competing and does not become `best` itself.
   push('2026-07-19', Array.from({ length: 6 }, () => 30));
 
   const fetchImpl = fakeFetch({ body: { timezone: 'Asia/Shanghai', hourly: { time: times, precipitation: amounts } } });
@@ -244,7 +256,29 @@ await expectAsyncCode('network', () =>
   assert.equal(best.date, '2026-07-18');
   assert.equal(best.peak, 11);
   assert.equal(best.total, 34);
+  assert.equal(best.isToday, false, 'the winner is not the payload\'s last date, so it must not be flagged as today');
   assert.ok(fetchImpl.calls[0].includes('past_days=60'));
+}
+
+// When the payload's own last date is the winner, it must be flagged so a
+// caller can route it through the forecast path instead of the archive,
+// which cannot serve the current day at all.
+{
+  const times = [];
+  const amounts = [];
+  const push = (date, hours) => {
+    hours.forEach((value, index) => {
+      times.push(`${date}T${String(index).padStart(2, '0')}:00`);
+      amounts.push(value);
+    });
+  };
+  push('2026-07-20', Array.from({ length: 24 }, () => 1));
+  push('2026-07-21', Array.from({ length: 24 }, () => 20));
+
+  const fetchImpl = fakeFetch({ body: { timezone: 'UTC', hourly: { time: times, precipitation: amounts } } });
+  const best = await findWettestRecentDay({ latitude: 1, longitude: 1, fetch: fetchImpl });
+  assert.equal(best.date, '2026-07-21');
+  assert.equal(best.isToday, true);
 }
 
 // A dry window raises 'empty'.

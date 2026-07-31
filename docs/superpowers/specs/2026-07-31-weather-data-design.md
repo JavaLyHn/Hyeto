@@ -49,9 +49,15 @@ hourly points, which is exactly `D 00:00…23:00` plus `D+1 00:00`:
 returned timestamps are already local to the chosen city.
 
 The "is this date today?" boundary is never computed. The archive holds data only
-through yesterday, so a hand-typed current date returns all-null and surfaces as
-an `empty` error that points the user at the live button. Deterministic, and no
-timezone comparison.
+through yesterday, so a hand-typed (or spun past `max` with the date input's own
+arrows) current date reaches the archive host anyway and is rejected outright —
+HTTP 400, mapped by `requestJson`'s generic `!response.ok` branch to
+`WeatherError('network')`, the same code an actual connectivity failure
+produces. The viewer is told to check their network for a request that failed
+only because of the date it named. Deterministic, and no timezone comparison.
+(The "wettest recent day" shortcut cannot hit this wall through its own normal
+operation: it routes a same-day result through the forecast path instead of the
+archive — see Shortcuts, above.)
 
 Coordinates snap to the model grid — requesting `31.2304, 121.4737` returns
 `31.2478, 121.5`. These are gridded forecast values at roughly 11 km resolution,
@@ -80,7 +86,7 @@ export function fetchArchivePrecipitation({ latitude, longitude, date, signal })
   → Promise<Result>
 
 export function findWettestRecentDay({ latitude, longitude, days = 60, signal })
-  → Promise<{ date, peak, total }>
+  → Promise<{ date, peak, total, isToday }>
 
 // Result = {
 //   values: number[25],
@@ -103,7 +109,12 @@ normally responds inside a second.
 
 `findWettestRecentDay` calls the forecast host with `past_days=60&forecast_days=1`,
 groups by local date, keeps only complete 24-hour days, and returns the day with
-the highest peak.
+the highest peak. `forecast_days=1` always appends exactly one more day beyond
+the `past_days` history, and that day is the current local one — a complete,
+eligible 24-hour day as far as this scan can tell, even though the archive host
+(below) cannot serve it at all. `isToday` is `true` exactly when the winning day
+is that appended day, identified by comparing against the payload's own last
+date rather than a real clock, so callers can route it around the archive.
 
 ### `src/weather-panel.js` — no `fetch` access
 
@@ -150,9 +161,15 @@ no new focus trap, `inert` handling or mobile layout work.
   yesterday. This is an input affordance only; the authoritative check is the
   API's `empty` response, so a one-day skew across timezones is harmless.
 - **Shortcuts** — "Today, live" goes straight to the forecast path. "Wettest
-  recent day" resolves a date via `findWettestRecentDay`, fills the date input,
-  then loads through the archive path. The second shortcut exists because picking
-  an arbitrary historical date usually lands on light or no rain.
+  recent day" resolves a date via `findWettestRecentDay`. When the winner is a
+  genuinely historical day it loads through the archive path and fills the date
+  input only once that load has succeeded — never before, since a failed load
+  must not leave the input showing a date whose data was never applied. When the
+  winner is `isToday`, it instead loads through the forecast path, exactly like
+  "Today, live", and leaves the date input empty; the archive host has no data
+  for the current day at all, so routing it there would trade a good result for
+  a guaranteed failure. The second shortcut exists because picking an arbitrary
+  historical date usually lands on light or no rain.
 - **Concurrency** — the panel keeps two independent `AbortController`s, not one:
   a search controller, aborted whenever the suggestion list is dismissed or a
   new search supersedes it, and a load controller, aborted only when a newer
@@ -255,9 +272,9 @@ days peaked at or above 5 mm/h.
 
 | `code` | Trigger | Message intent |
 |---|---|---|
-| `network` | fetch failure, timeout, CSP block | cannot reach the weather service, check the network |
+| `network` | fetch failure, timeout, CSP block, or a same-day archive request (a hand-typed or spun-past-`max` current date; see Routing, above) | cannot reach the weather service, check the network |
 | `notFound` | geocoding returned nothing | city not found |
-| `empty` | all 25 points null, including a hand-typed today | no data for that date, try "today, live" |
+| `empty` | all 25 points null — a genuine data gap, not a same-day request, which reaches `network` instead (see above) | no data for that date, try "today, live" |
 | `range` | the date is not in `YYYY-MM-DD` form | the date must be formatted correctly |
 | `rateLimit` | HTTP 429 | too many requests, try again later |
 | `shape` | the payload is malformed or has fewer than 25 points | the weather service returned unrecognisable data |
@@ -316,7 +333,22 @@ wired into `npm run check`:
 - HTTP 429 raises `rateLimit`
 - empty geocoding results raise `notFound`
 
-Panel interaction is verified by hand; there is no DOM test environment.
+`weather-panel.js`'s own pure decisions — city-label formatting, the error-code
+to i18n-key mapping, arrow-key index wrapping, the loaded/gaps/dry status line,
+the locale-to-ISO-639-1 reduction for the geocoding `language` parameter, and the
+request-currency identity comparison — are asserted the same way, with no DOM
+and a fake `i18n`, by `scripts/check-weather-panel.mjs`, also wired into
+`npm run check`.
+
+Panel *interaction* — typing, debounce timing, keyboard behaviour, and the
+concurrency guarantees that are not expressible as a pure function — is verified
+against a real DOM instead of by hand. `probe/weather-panel.html` mounts the
+panel with a fake `api` and drives it with dispatched events, setting a
+`data-probe` attribute once every check has run. `scripts/check-weather-dom.mjs`
+serves that page from a throwaway local Vite instance, loads it in headless
+Chrome, and reads the attribute back. This needs a real browser and a bound
+port, which `npm run check` must not depend on, so it is wired into the separate
+opt-in `npm run check:dom` instead.
 
 `check-dist.mjs` needs no change: the new modules bundle into the existing chunk
 and add no assets.
@@ -331,8 +363,11 @@ and add no assets.
 | `index.html` | container for the new editor section |
 | `src/styles.css` | panel styles following the `rainfall-editor__*` convention |
 | `public/_headers` | three Open-Meteo hosts added to `connect-src` |
-| `scripts/check-weather-api.mjs` | new — pure-logic assertions |
-| `package.json` | `check` runs the new script |
+| `scripts/check-weather-api.mjs` | new — pure-logic assertions for `weather-api.js` |
+| `scripts/check-weather-panel.mjs` | new — pure-logic assertions for `weather-panel.js` |
+| `probe/weather-panel.html` | new — real-DOM harness for the panel, driven by a fake `api` |
+| `scripts/check-weather-dom.mjs` | new — headless-Chrome runner for the probe, opt-in via `check:dom` |
+| `package.json` | `check` runs the new pure-logic scripts; `check:dom` runs the probe separately |
 | `THIRD_PARTY_NOTICES.md` | Open-Meteo data attribution |
 | `README.md` | describe the feature and its data source |
 

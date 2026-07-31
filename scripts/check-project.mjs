@@ -95,4 +95,26 @@ if (bootstrapZhKeys.join('\n') !== bootstrapEnKeys.join('\n')) {
   throw new Error('Bootstrap translation keys differ between Chinese and English.');
 }
 
+// Vite ignores public/_headers entirely in dev, so a regression here (the
+// three Open-Meteo hosts dropping out of connect-src) is invisible in
+// development and surfaces only in production, where every weather request
+// gets blocked by the browser before it leaves the page. Checking file
+// existence (above) cannot catch that; the directive's content has to be
+// read.
+const headersFile = await readFile('public/_headers', 'utf8');
+const connectSrcMatch = /connect-src\s+([^;\n]+)/.exec(headersFile);
+if (!connectSrcMatch) {
+  throw new Error('public/_headers has no connect-src directive.');
+}
+const connectSrc = connectSrcMatch[1];
+const requiredWeatherHosts = [
+  'https://api.open-meteo.com',
+  'https://archive-api.open-meteo.com',
+  'https://geocoding-api.open-meteo.com'
+];
+const missingHosts = requiredWeatherHosts.filter(host => !connectSrc.includes(host));
+if (missingHosts.length) {
+  throw new Error(`public/_headers connect-src is missing: ${missingHosts.join(', ')}`);
+}
+
 console.log(`Project checks passed (${zhKeys.length} complete translation keys per locale).`);
