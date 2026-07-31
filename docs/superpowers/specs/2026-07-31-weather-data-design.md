@@ -258,9 +258,28 @@ days peaked at or above 5 mm/h.
 | `network` | fetch failure, timeout, CSP block | cannot reach the weather service, check the network |
 | `notFound` | geocoding returned nothing | city not found |
 | `empty` | all 25 points null, including a hand-typed today | no data for that date, try "today, live" |
-| `range` | outside the archive window, e.g. before 1940 | date outside the queryable range |
+| `range` | the date is not in `YYYY-MM-DD` form | the date must be formatted correctly |
 | `rateLimit` | HTTP 429 | too many requests, try again later |
 | `shape` | the payload is malformed or has fewer than 25 points | the weather service returned unrecognisable data |
+
+`range` is a local format check, not a range check, despite its name: it is
+`nextCalendarDay`'s regex guard rejecting a string that isn't `YYYY-MM-DD`,
+which the date input's own `type="date"` makes hard to reach by hand. A
+well-formatted but genuinely out-of-range date — `1900-01-01`, decades before
+the archive begins — passes that regex, reaches the archive host, and comes
+back as a non-200, non-429 response. `requestJson`'s generic `!response.ok`
+branch then maps it to `WeatherError('network')`, indistinguishable from an
+actual connectivity failure. Do not add local range validation to make
+`range` fire for this case — that is out of scope here, and the code's
+current behaviour is not a bug, only under-described. A UI that keys "pick a
+date after 1940" prompting on `code === 'range'` would never fire it; the
+viewer is told to check their network instead.
+
+(`nextCalendarDay` has a second, dead `range` throw guarding
+`!Number.isFinite(stamp)` after the regex has already matched: `Date.UTC`
+cannot produce a non-finite result for any 4-digit-year input the regex
+accepts, so this branch is unreachable. Harmless, but worth knowing before
+relying on it.)
 
 This table is not the full set of ways a request can end. A caller-initiated
 abort — the panel superseding its own in-flight search or load — propagates the
