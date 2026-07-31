@@ -1213,3 +1213,115 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
+.weather-panel {
+  display: grid;
+  margin-bottom: 18px;
+  padding: 14px;
+  gap: 10px;
+  border: 1px solid rgba(250, 251, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(250, 251, 255, 0.03);
+}
+
+.weather-panel__heading h2 {
+  margin: 0;
+  color: rgba(228, 234, 245, 0.9);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.weather-panel__field {
+  display: grid;
+  gap: 5px;
+  color: rgba(194, 203, 219, 0.72);
+  font-size: 11px;
+}
+
+.weather-panel__input,
+.weather-panel__date {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(250, 251, 255, 0.14);
+  border-radius: 9px;
+  background: rgba(10, 12, 16, 0.5);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+}
+
+.weather-panel__input:focus-visible,
+.weather-panel__date:focus-visible,
+.weather-panel__button:focus-visible {
+  outline: 2px solid rgba(120, 170, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.weather-panel__results {
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid rgba(250, 251, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(10, 12, 16, 0.72);
+  list-style: none;
+}
+
+.weather-panel__result {
+  padding: 8px 10px;
+  color: rgba(218, 225, 238, 0.82);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weather-panel__result.is-active,
+.weather-panel__result:hover {
+  background: rgba(250, 251, 255, 0.09);
+  color: #fff;
+}
+
+.weather-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weather-panel__button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(250, 251, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(250, 251, 255, 0.05);
+  color: rgba(228, 234, 245, 0.88);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weather-panel__button:hover:not(:disabled) {
+  background: rgba(250, 251, 255, 0.1);
+  color: #fff;
+}
+
+.weather-panel__button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rainfall-editor-toggle[data-weather-failed]::after {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff8080;
+  content: '';
+}
+
+.rainfall-editor-toggle {
+  position: relative;
+}

@@ -1,0 +1,373 @@
+<!doctype html>
+<title>weather panel probe</title>
+<div id="dialog">
+  <form id="host-form">
+    <main id="mount"></main>
+    <button id="host-submit" type="submit">apply</button>
+  </form>
+</div>
+<script type="module">
+  import { createWeatherPanel } from '/src/weather-panel.js';
+
+  const failures = [];
+  const check = (label, condition) => {
+    if (!condition) failures.push(label);
+  };
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  const cities = [
+    { id: 1, name: '杭州', admin1: '浙江', country: '中国', latitude: 30.29, longitude: 120.16 },
+    { id: 2, name: '杭州', admin1: '四川', country: '中国', latitude: 30.06, longitude: 102.19 }
+  ];
+
+  let geocodeCalls = 0;
+  let abortedCount = 0;
+  const api = {
+    async geocodeCity(query, { signal } = {}) {
+      geocodeCalls += 1;
+      await tick();
+      if (signal?.aborted) {
+        abortedCount += 1;
+        throw new DOMException('aborted', 'AbortError');
+      }
+      return cities;
+    },
+    async fetchTodayPrecipitation() {
+      return { values: Array.from({ length: 25 }, () => 1), meta: { date: '2026-07-31', source: 'forecast', timezone: 'Asia/Shanghai', peak: 1, gaps: 0 } };
+    },
+    async fetchArchivePrecipitation() {
+      return { values: Array.from({ length: 25 }, () => 2), meta: { date: '2026-07-18', source: 'archive', timezone: 'Asia/Shanghai', peak: 2, gaps: 0 } };
+    },
+    async findWettestRecentDay() {
+      return { date: '2026-07-18', peak: 11, total: 24.2, isToday: false };
+    }
+  };
+
+  // Stand-ins for the two ancestors the real panel lives inside.
+  let formSubmits = 0;
+  let dialogEscapes = 0;
+  document.querySelector('#host-form').addEventListener('submit', event => {
+    event.preventDefault();
+    formSubmits += 1;
+  });
+  document.querySelector('#dialog').addEventListener('keydown', event => {
+    if (event.key === 'Escape') dialogEscapes += 1;
+  });
+
+  let applied = null;
+  let status = '';
+  let errorText = '';
+  const panel = createWeatherPanel({
+    mount: document.querySelector('#mount'),
+    api,
+    i18n: key => key,
+    onApply: values => { applied = values; },
+    setStatus: message => { status = message; },
+    setError: message => { errorText = message; }
+  });
+
+  const baseGeocode = api.geocodeCity;
+  const input = document.querySelector('[data-weather="city"]');
+  const results = document.querySelector('#weather-panel-results');
+  const type = async value => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // The panel debounces for 300ms; wait past it plus the fake api's tick.
+    await new Promise(resolve => setTimeout(resolve, 420));
+  };
+  // Returns the event itself (not dispatchEvent's boolean) so callers can
+  // inspect event.defaultPrevented: a script-dispatched (untrusted) keydown
+  // never triggers native implicit-submit-on-Enter in headless Chrome
+  // regardless of whether a handler called preventDefault(), so formSubmits
+  // alone cannot tell a guarded Enter from an unguarded one. Cancellation
+  // itself, unlike submission, is observable with untrusted dispatch.
+  const press = key => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    return event;
+  };
+
+  try {
+    // A single character must not reach the api.
+    await type('杭');
+    check('single character queried the api', geocodeCalls === 0);
+    check('single character opened the list', results.hidden === true);
+
+    // Two characters render both matches, distinguished by admin1.
+    await type('杭州');
+    check('two characters did not query', geocodeCalls === 1);
+    check('list stayed hidden', results.hidden === false);
+    check('wrong result count', results.children.length === 2);
+    check('first label wrong', results.children[0].textContent === '杭州 / 浙江 / 中国');
+    check('second label wrong', results.children[1].textContent === '杭州 / 四川 / 中国');
+    check('combobox not expanded', input.getAttribute('aria-expanded') === 'true');
+    check('roles missing', [...results.children].every(node => node.getAttribute('role') === 'option'));
+
+    // Arrows move the active option and keep aria-activedescendant in step.
+    check('initial active option wrong', input.getAttribute('aria-activedescendant') === 'weather-panel-result-0');
+    press('ArrowDown');
+    check('ArrowDown did not advance', input.getAttribute('aria-activedescendant') === 'weather-panel-result-1');
+    press('ArrowDown');
+    check('ArrowDown did not wrap', input.getAttribute('aria-activedescendant') === 'weather-panel-result-0');
+    press('ArrowUp');
+    check('ArrowUp did not wrap', input.getAttribute('aria-activedescendant') === 'weather-panel-result-1');
+
+    // Enter commits the highlighted city and closes the list.
+    press('Enter');
+    check('Enter did not fill the input', input.value === '杭州 / 四川 / 中国');
+    check('Enter left the list open', results.hidden === true);
+    check('selected city wrong', panel.getSelectedCity()?.admin1 === '四川');
+
+    // Escape closes a reopened list without selecting.
+    await type('杭州');
+    check('list did not reopen', results.hidden === false);
+    press('Escape');
+    check('Escape left the list open', results.hidden === true);
+
+    // A second search while the first is in flight aborts the first.
+    // The base fake's tick() resolves in a single microtask, so under Chrome's
+    // virtual clock it settles at the same virtual instant the debounce fires —
+    // there is no window in which a later abort() can still reach it. Swap in a
+    // fake with a real, outlasting delay so the first request is still pending
+    // when the second one starts.
+    api.geocodeCity = (query, { signal } = {}) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        abortedCount += 1;
+        reject(new DOMException('aborted', 'AbortError'));
+      }, { once: true });
+      setTimeout(() => resolve(cities), 500);
+    });
+    input.value = '杭州';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 310));
+    input.value = '上海';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 420));
+    check('in-flight search was not aborted', abortedCount >= 1);
+    api.geocodeCity = baseGeocode;
+
+    // A failing search surfaces a message and leaves no stale list.
+    api.geocodeCity = async () => { throw new TypeError('blocked'); };
+    await type('failcity');
+    check('no error surfaced', errorText === 'weatherErrorNetwork');
+    check('stale list after failure', results.hidden === true);
+
+    // Loading applies exactly 25 values.
+    document.querySelector('[data-weather="today"]').click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    check('load did not apply 25 values', Array.isArray(applied) && applied.length === 25);
+    check('status not reported', status.length > 0);
+
+    // --- Regression cover for defects found in review of tasks 4 and 5 ---
+
+    // Enter must never submit the enclosing form, in either list state.
+    // Regression: this silently applied staged draft rainfall data.
+    api.geocodeCity = async () => cities;
+    formSubmits = 0;
+    input.value = 'a';                       // below MINIMUM_QUERY_LENGTH: list stays closed
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('list unexpectedly open on 1 char', results.hidden === true);
+    // formSubmits === 0 cannot carry this coverage on its own: a
+    // script-dispatched keydown never triggers native implicit-submit in
+    // headless Chrome even when nothing calls preventDefault(), so that
+    // check alone would pass whether or not the panel guards Enter. Assert
+    // the mechanism the panel actually controls — cancellation — via
+    // event.defaultPrevented, which untrusted dispatch does still report.
+    let enterEvent = press('Enter');
+    check('Enter did not prevent default with the list closed', enterEvent.defaultPrevented === true);
+    check('Enter submitted the form with the list closed', formSubmits === 0);
+
+    await type('杭州');                       // list open
+    enterEvent = press('Enter');
+    check('Enter did not prevent default with the list open', enterEvent.defaultPrevented === true);
+    check('Enter submitted the form with the list open', formSubmits === 0);
+    check('Enter did not commit the option', input.value === '杭州 / 浙江 / 中国');
+
+    // Escape is two-step: the first dismisses only the popup, the second reaches
+    // the dialog. Regression: one keystroke did both.
+    await type('杭州');
+    dialogEscapes = 0;
+    press('Escape');
+    check('first Escape left the list open', results.hidden === true);
+    check('first Escape reached the dialog', dialogEscapes === 0);
+    press('Escape');
+    check('second Escape did not reach the dialog', dialogEscapes === 1);
+
+    // Dismissing while a search is in flight must abort it and must not repaint.
+    // Regression: a stale result reopened a list the user had closed.
+    // The Escape handler only reaches closeResults() when the list is currently
+    // shown (deliberately: a second Escape with the list already closed must
+    // instead reach the dialog, tested above). The previous block left the list
+    // closed, so it must be reopened here or the abort this check is testing
+    // for would never be exercised.
+    api.geocodeCity = async () => cities;
+    await type('杭州');
+    let slowSearchAborted = false;
+    api.geocodeCity = (query, { signal } = {}) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        slowSearchAborted = true;
+        reject(new DOMException('aborted', 'AbortError'));
+      }, { once: true });
+      setTimeout(() => resolve(cities), 400);
+    });
+    input.value = '上海';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 320));   // past debounce, mid-request
+    press('Escape');
+    // Past the fake api's own 400ms resolution too, so a reintroduced bug that
+    // lets the stale request repaint the list has time to actually do it.
+    await new Promise(resolve => setTimeout(resolve, 450));
+    check('dismissing did not abort the in-flight search', slowSearchAborted === true);
+    check('a dismissed list was repainted', results.hidden === true);
+
+    // A load and a search are independent: editing the city box mid-load must not
+    // strand the controls. Regression: every load control stayed disabled forever
+    // and the status stayed stuck on the loading string.
+    api.geocodeCity = async () => cities;
+    let releaseLoad;
+    api.fetchTodayPrecipitation = () => new Promise(resolve => {
+      releaseLoad = () => resolve({
+        values: Array.from({ length: 25 }, () => 3),
+        meta: { date: '2026-07-18', source: 'forecast', timezone: 'Asia/Shanghai', peak: 3, gaps: 0 }
+      });
+    });
+    const todayButton = document.querySelector('[data-weather="today"]');
+    todayButton.click();
+    await tick();
+    check('controls were not disabled during a load', todayButton.disabled === true);
+    input.value = 'x';                       // drops below the query minimum mid-load
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    releaseLoad();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('controls left disabled after editing the city mid-load', todayButton.disabled === false);
+    check('status left stuck on loading', status !== 'weatherLoading');
+
+    // The finally block's currency check (isLatestRequest(controller,
+    // activeLoad), not controller.signal.aborted) only has an observable
+    // effect through destroy(): every other way a load's controller gets
+    // aborted also reassigns activeLoad away from it in the same tick (see
+    // run()), so "aborted" and "no longer latest" always agree there —
+    // reproduced and confirmed via two overlapping loadToday() calls before
+    // settling on this. destroy() is the one place that aborts activeLoad's
+    // controller without reassigning activeLoad away from it, so it is the
+    // only place the two checks can disagree: an identity check still says
+    // "yes, still current" (nothing replaced it) and runs busy(false); an
+    // aborted-check says "I was cancelled" and wrongly skips it, leaving the
+    // load's controls stuck disabled with no later request left to clear them.
+    api.geocodeCity = async () => cities;
+    let loadAbortedByDestroy = false;
+    api.fetchTodayPrecipitation = ({ signal } = {}) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        loadAbortedByDestroy = true;
+        reject(new DOMException('aborted', 'AbortError'));
+      }, { once: true });
+    });
+    panel.loadToday(cities[0]).catch(() => {});
+    await tick();
+    panel.destroy();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('destroy did not abort the in-flight load', loadAbortedByDestroy === true);
+    check('a load aborted by destroy left its controls disabled', todayButton.disabled === false);
+
+    // --- Regression cover for the whole-branch review's cross-task findings ---
+
+    // The mount above was destroyed by the previous block; build a fresh panel
+    // so the remaining checks have live listeners to exercise.
+    api.geocodeCity = baseGeocode;
+    api.fetchTodayPrecipitation = async () => ({
+      values: Array.from({ length: 25 }, () => 1),
+      meta: { date: '2026-07-31', source: 'forecast', timezone: 'Asia/Shanghai', peak: 1, gaps: 0 }
+    });
+    api.fetchArchivePrecipitation = async () => ({
+      values: Array.from({ length: 25 }, () => 2),
+      meta: { date: '2026-07-18', source: 'archive', timezone: 'Asia/Shanghai', peak: 2, gaps: 0 }
+    });
+    api.findWettestRecentDay = async () => ({ date: '2026-07-18', peak: 11, total: 24.2, isToday: false });
+    applied = null;
+    status = '';
+    errorText = '';
+    const panel2 = createWeatherPanel({
+      mount: document.querySelector('#mount'),
+      api,
+      i18n: key => key,
+      onApply: values => { applied = values; },
+      setStatus: message => { status = message; },
+      setError: message => { errorText = message; }
+    });
+    panel2.setSelectedCity(cities[0]);
+    // The panel above rebuilt #mount's contents from scratch; the earlier
+    // `input`/`results` references are now detached nodes, so query fresh
+    // ones rather than reusing them.
+    const dateInput = document.querySelector('[data-weather="date"]');
+    const wettestButton = document.querySelector('[data-weather="wettest"]');
+
+    // Enter in the date input must never reach the surrounding <form>, exactly
+    // like the city input. Regression: this silently applied staged draft
+    // rainfall data when a user confirmed a typed date with Enter.
+    formSubmits = 0;
+    dateInput.value = '';
+    let dateEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    dateInput.dispatchEvent(dateEnter);
+    await tick();
+    check('Enter in an empty date field did not prevent default', dateEnter.defaultPrevented === true);
+    check('Enter in an empty date field submitted the form', formSubmits === 0);
+    check('Enter in an empty date field loaded anyway', applied === null);
+
+    dateInput.value = '2026-05-01';
+    dateEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    dateInput.dispatchEvent(dateEnter);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('Enter with a set date field did not prevent default', dateEnter.defaultPrevented === true);
+    check('Enter with a set date field submitted the form', formSubmits === 0);
+    check('Enter with a set date field did not load it', Array.isArray(applied) && applied.length === 25 && applied[0] === 2);
+
+    // "Wettest recent day" for a genuinely historical winner still loads
+    // through the archive, and only paints the date box once that load has
+    // actually landed. Regression: the box was painted before the load was
+    // even attempted, so a failure left it showing a date whose data was
+    // never applied.
+    applied = null;
+    dateInput.value = '';
+    wettestButton.click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('wettest (historical) did not apply archive values', Array.isArray(applied) && applied.length === 25 && applied[0] === 2);
+    check('wettest (historical) did not paint the date box', dateInput.value === '2026-07-18');
+
+    // A failed load for a historical winner must not paint the date box at all.
+    applied = null;
+    dateInput.value = '';
+    api.fetchArchivePrecipitation = async () => { throw new Error('network down'); };
+    wettestButton.click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('a failed wettest (historical) load applied values anyway', applied === null);
+    check('a failed wettest (historical) load painted the date box anyway', dateInput.value === '');
+
+    // When the scan's own winner is the current local day, the archive host
+    // cannot serve it (HTTP 400) and requestJson's generic branch reports that
+    // as a misleading network error. The shortcut must route this case through
+    // the forecast path instead, never touching the archive, and must leave
+    // the date box empty rather than showing a date the archive would reject.
+    applied = null;
+    dateInput.value = '2000-01-01';
+    let archiveCalled = false;
+    api.fetchArchivePrecipitation = async () => { archiveCalled = true; throw new Error('must not be called'); };
+    api.fetchTodayPrecipitation = async () => ({
+      values: Array.from({ length: 25 }, () => 5),
+      meta: { date: '2026-07-31', source: 'forecast', timezone: 'Asia/Shanghai', peak: 5, gaps: 0 }
+    });
+    api.findWettestRecentDay = async () => ({ date: '2026-07-31', peak: 5, total: 40, isToday: true });
+    wettestButton.click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    check('wettest (today) used the archive host', archiveCalled === false);
+    check('wettest (today) did not apply forecast values', Array.isArray(applied) && applied.length === 25 && applied[0] === 5);
+    check('wettest (today) left the date box showing an unservable date', dateInput.value === '');
+
+    panel2.destroy();
+  } catch (error) {
+    failures.push(`threw: ${error?.message ?? error}`);
+  }
+
+  document.documentElement.dataset.probe = failures.length ? `FAIL ${failures.join(' | ')}` : 'OK';
+</script>

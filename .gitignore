@@ -14,3 +14,5 @@ exports/
 .private-backups/
 .claude/
 ChatGPT Image*.png
+.superpowers/
+hyeto-probe-profile/

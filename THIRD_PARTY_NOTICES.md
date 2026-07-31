@@ -12,3 +12,8 @@ Hyeto's rain visualization derives from Rainform / 数据成雨 © 2026 afterima
 `public/audio/rain-loop.m4a` is encoded from a WAV that `scripts/generate-rain-audio.mjs` synthesises deterministically. It does not contain a third-party recording, music track or audio sample.
 
 Contributors must verify the origin and redistribution rights of any new code, media, font, audio or dataset before adding it to the repository.
+
+Live and historical precipitation come from [Open-Meteo](https://open-meteo.com/),
+used under its free non-commercial terms. Open-Meteo requires no API key and is
+queried directly from the browser; no weather data is bundled with this
+repository.

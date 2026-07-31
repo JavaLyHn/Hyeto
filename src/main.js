@@ -4,6 +4,8 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as weatherApi from './weather-api.js';
+import { createWeatherPanel } from './weather-panel.js';
 
 function isXEmbeddedLaunch() {
   const userAgent = navigator.userAgent || '';
@@ -78,7 +80,26 @@ const messages = {
     dataValueError: '降雨量必须是大于或等于 0 的有限数字',
     webglTitle: '无法显示实时雨景',
     webglUnavailable: '此设备或浏览器无法创建 WebGL2 图形环境。请升级浏览器，或确认硬件加速已开启。',
-    webglInterrupted: '图形环境暂时中断，正在等待浏览器恢复。'
+    webglInterrupted: '图形环境暂时中断，正在等待浏览器恢复。',
+    weatherTitle: '天气数据',
+    weatherCityLabel: '城市',
+    weatherCityPlaceholder: '搜索城市……',
+    weatherDateLabel: '日期',
+    weatherToday: '今日实时',
+    weatherWettest: '最近最强降雨日',
+    weatherSearching: '正在搜索……',
+    weatherLoading: '正在加载……',
+    weatherLoaded: ({ city, date, peak }) => `已加载 ${city} · ${date} · 峰值 ${peak} mm/h`,
+    weatherNoRain: '当日无降雨',
+    weatherNoRainDefault: '当日无降雨，已显示默认数据',
+    weatherGaps: ({ count }) => `${count} 小时数据缺失`,
+    weatherErrorNetwork: '无法连接天气服务，请检查网络后重试',
+    weatherErrorNotFound: '未找到该城市',
+    weatherErrorNoCity: '请先选择城市',
+    weatherErrorEmpty: '该日期暂无数据，试试「今日实时」',
+    weatherErrorRange: '日期超出可查询范围',
+    weatherErrorRateLimit: '请求过于频繁，请稍后再试',
+    weatherErrorShape: '天气服务返回了无法识别的数据'
   },
   en: {
     documentTitle: 'Hyeto · Data into Rain',
@@ -132,7 +153,26 @@ const messages = {
     dataValueError: 'Rainfall must be a finite number greater than or equal to 0',
     webglTitle: 'Unable to display the live rain scene',
     webglUnavailable: 'This device or browser could not create a WebGL2 graphics context. Update the browser or make sure hardware acceleration is enabled.',
-    webglInterrupted: 'The graphics context was interrupted. Waiting for the browser to restore it.'
+    webglInterrupted: 'The graphics context was interrupted. Waiting for the browser to restore it.',
+    weatherTitle: 'Weather data',
+    weatherCityLabel: 'City',
+    weatherCityPlaceholder: 'Search for a city',
+    weatherDateLabel: 'Date',
+    weatherToday: 'Today, live',
+    weatherWettest: 'Wettest recent day',
+    weatherSearching: 'Searching…',
+    weatherLoading: 'Loading…',
+    weatherLoaded: ({ city, date, peak }) => `Loaded ${city} · ${date} · peak ${peak} mm/h`,
+    weatherNoRain: 'No rain that day',
+    weatherNoRainDefault: 'No rain that day, so the built-in data is shown',
+    weatherGaps: ({ count }) => `${count} hours of data are missing`,
+    weatherErrorNetwork: 'Could not reach the weather service. Check the network and try again.',
+    weatherErrorNotFound: 'No city matched that search',
+    weatherErrorNoCity: 'Choose a city first',
+    weatherErrorEmpty: 'No data for that date. Try "Today, live".',
+    weatherErrorRange: 'That date is outside the queryable range',
+    weatherErrorRateLimit: 'Too many requests. Try again shortly.',
+    weatherErrorShape: 'The weather service returned unrecognisable data'
   }
 };
 
@@ -226,6 +266,29 @@ let axisMax = 12.8;
 let peakWaterfallRanges = [];
 let rainCeilingValue = axisMax;
 let rainCeilingY = 0;
+
+// Only the city is remembered. The curve itself is never persisted, so every
+// reload still starts from the built-in data. Deliberately not part of the
+// STORAGE object further down: that one is scoped inside the dev-only tuning
+// console initialiser.
+const WEATHER_CITY_STORAGE_KEY = 'rf-weather-city';
+
+function readStoredWeatherCity() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WEATHER_CITY_STORAGE_KEY) || 'null');
+    if (!raw || typeof raw.name !== 'string') return null;
+    if (!Number.isFinite(raw.latitude) || !Number.isFinite(raw.longitude)) return null;
+    return {
+      name: raw.name,
+      admin1: typeof raw.admin1 === 'string' ? raw.admin1 : '',
+      country: typeof raw.country === 'string' ? raw.country : '',
+      latitude: raw.latitude,
+      longitude: raw.longitude
+    };
+  } catch {
+    return null;
+  }
+}
 
 const BASE_AXIS_MAX = 12.8;
 const VISUAL_RAINFALL_REFERENCE = 10;
@@ -6019,6 +6082,69 @@ function initRainfallEditor() {
   const closeButton = rainfallEditor.querySelector('#rainfall-editor-close');
   const restoreButton = rainfallEditor.querySelector('#rainfall-restore');
   const applyButton = rainfallEditor.querySelector('#rainfall-apply');
+
+  const weatherMount = document.querySelector('#weather-panel');
+  let weatherPanel = null;
+  // Retained so a failure explanation can survive `syncInputs` clearing
+  // `rainfallEditorErrors` when the editor is (re)opened -- see
+  // `setEditorOpen` below. Cleared in lockstep with the toggle's red-dot
+  // marker, so both disappear together once a later load succeeds.
+  let lastWeatherErrorMessage = '';
+  if (weatherMount) {
+    const showWeatherFailure = message => {
+      lastWeatherErrorMessage = message;
+      rainfallEditorErrors.textContent = message;
+      rainfallEditorErrors.hidden = !message;
+      rainfallEditorToggle?.toggleAttribute('data-weather-failed', Boolean(message));
+    };
+
+    weatherPanel = createWeatherPanel({
+      mount: weatherMount,
+      api: weatherApi,
+      i18n,
+      onApply: values => {
+        applyRainfallData(values);
+        // Loaded data becomes the new draft: the draggable chart is the
+        // primary control, and it must show what was just applied rather
+        // than the previous curve.
+        syncInputs(activeRainfall);
+      },
+      setStatus: message => { rainfallEditorStatus.textContent = message; },
+      setError: showWeatherFailure
+    });
+
+    weatherMount.addEventListener('weather-city-selected', event => {
+      try {
+        localStorage.setItem(WEATHER_CITY_STORAGE_KEY, JSON.stringify(event.detail));
+      } catch {
+        // Storage being unavailable must not break loading weather.
+      }
+    });
+
+    const storedCity = readStoredWeatherCity();
+    if (storedCity) {
+      weatherPanel.setSelectedCity(storedCity);
+      // Fire and forget: the scene is already rendering the default curve, and
+      // this must never delay boot. A peak of 0 leaves the default curve alone
+      // rather than opening on an empty scene.
+      weatherPanel.loadToday(storedCity).then(applied => {
+        if (applied && rainfallMax === 0) {
+          applyRainfallData(defaultRainfall);
+          syncInputs(activeRainfall);
+          rainfallEditorStatus.textContent = i18n('weatherNoRainDefault');
+        }
+      }).catch(error => {
+        // Network/geocoding failures are already reported through setError
+        // above, inside the panel's own try/catch. This guards what that
+        // catch does not cover: onApply (applyRainfallData) runs after the
+        // panel's request has already resolved successfully, so a rejection
+        // from it -- or from the peak-0 branch just above -- would otherwise
+        // be a silent unhandled rejection at boot, with no red dot at all.
+        showWeatherFailure(error instanceof Error ? error.message : i18n('applyFailed'));
+      });
+    }
+  }
+
   const inputs = [];
   const chartPoints = [];
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -6296,6 +6422,15 @@ function initRainfallEditor() {
       previouslyFocused = document.activeElement;
       rainfallEditor.removeAttribute('inert');
       syncInputs(activeRainfall);
+      // syncInputs() just cleared rainfallEditorErrors unconditionally. An
+      // ordinary validation error should stay cleared on reopen -- but an
+      // unresolved weather failure (the toggle's red dot is still asking to
+      // be read) must survive being read, so re-assert it synchronously,
+      // before this ever paints.
+      if (lastWeatherErrorMessage) {
+        rainfallEditorErrors.textContent = lastWeatherErrorMessage;
+        rainfallEditorErrors.hidden = false;
+      }
       rainfallEditorStatus.textContent = i18n('editorReady');
       requestAnimationFrame(() => closeButton?.focus());
     } else {
